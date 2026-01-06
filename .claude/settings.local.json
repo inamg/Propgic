@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet clean:*)",
+      "Bash(dotnet build:*)",
+      "Bash(tree:*)",
+      "Bash(claude-code --version:*)",
+      "Bash(claude mcp list:*)",
+      "Bash(dotnet new:*)",
+      "Bash(dotnet tool install:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(where:*)",
+      "Bash(dotnet run)"
+    ]
+  }
+}
