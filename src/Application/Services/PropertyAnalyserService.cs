@@ -71,9 +71,7 @@ public class PropertyAnalyserService : IPropertyAnalyserService
         var createdAnalysis = await _propertyAnalysisRepository.AddAsync(analysis);
         await _unitOfWork.SaveChangesAsync();
 
-        // Automatically run the analysis
-        return await RunAnalysisAsync(createdAnalysis.Id)
-            ?? _mapper.Map<PropertyAnalysisDto>(createdAnalysis);
+        return _mapper.Map<PropertyAnalysisDto>(createdAnalysis);
     }
 
     public async Task<PropertyAnalysisDto?> UpdateAnalysisAsync(Guid id, UpdatePropertyAnalysisDto updateDto)

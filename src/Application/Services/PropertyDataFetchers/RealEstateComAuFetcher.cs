@@ -56,6 +56,30 @@ public class RealEstateComAuFetcher : IPropertyDataFetcher
         }
     }
 
+    public async Task<PropertyDataDto?> FetchPropertyDataFromUrlAsync(string propertyUrl)
+    {
+        try
+        {
+            Console.WriteLine($"Fetching property data directly from URL: {propertyUrl}");
+
+            // Use Selenium to fetch the page content from the provided URL
+            var pageContent = await _seleniumService.GetPageContentAsync(propertyUrl);
+
+            if (string.IsNullOrEmpty(pageContent))
+            {
+                Console.WriteLine($"Could not fetch property data from URL: {propertyUrl}");
+                return null;
+            }
+
+            return ParsePropertyData(pageContent, propertyUrl);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching from URL {propertyUrl}: {ex.Message}");
+            return null;
+        }
+    }
+
     private PropertyDataDto ParsePropertyData(string htmlContent, string address)
     {
         var propertyData = new PropertyDataDto

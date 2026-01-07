@@ -72,24 +72,13 @@ public class PropertyDataAggregator
 
             if (selectedFetcher != null)
             {
-                // Get the page content using Selenium
-                var pageContent = await _seleniumService.GetPageContentAsync(propertyUrl);
+                // Use the new interface method to fetch directly from URL
+                var propertyData = await selectedFetcher.FetchPropertyDataFromUrlAsync(propertyUrl);
 
-                if (!string.IsNullOrEmpty(pageContent))
+                if (propertyData != null)
                 {
-                    // Use reflection to call the ParsePropertyData method
-                    var parseMethod = selectedFetcher.GetType().GetMethod("ParsePropertyData",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-                    if (parseMethod != null)
-                    {
-                        var result = parseMethod.Invoke(selectedFetcher, new object[] { pageContent, propertyUrl });
-                        if (result is PropertyDataDto propertyData)
-                        {
-                            Console.WriteLine($"Successfully parsed data from {selectedFetcher.SourceName}");
-                            return propertyData;
-                        }
-                    }
+                    Console.WriteLine($"Successfully fetched and parsed data from {selectedFetcher.SourceName}");
+                    return propertyData;
                 }
             }
 
