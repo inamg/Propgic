@@ -75,29 +75,26 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Ensure database is created and apply migrations
-//using (var scope = app.Services.CreateScope())
-//{
-//    var services = scope.ServiceProvider;
-//    try
-//    {
-//        var context = services.GetRequiredService<ApplicationDbContext>();
-//        var logger = services.GetRequiredService<ILogger<Program>>();
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<ApplicationDbContext>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
 
-//        logger.LogInformation("Ensuring database exists...");
-//        context.Database.EnsureCreated();
+        logger.LogInformation("Applying pending migrations...");
+        context.Database.Migrate();
 
-//        logger.LogInformation("Applying pending migrations...");
-//        context.Database.Migrate();
-
-//        logger.LogInformation("Database migration completed successfully.");
-//    }
-//    catch (Exception ex)
-//    {
-//        var logger = services.GetRequiredService<ILogger<Program>>();
-//        logger.LogError(ex, "An error occurred while migrating the database.");
-//        throw; // Re-throw to prevent app from starting with broken database
-//    }
-//}
+        logger.LogInformation("Database migration completed successfully.");
+    }
+    catch (Exception ex)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while migrating the database.");
+        throw; // Re-throw to prevent app from starting with broken database
+    }
+}
 
 // Configure the HTTP request pipeline
 //if (app.Environment.IsDevelopment())
