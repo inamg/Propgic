@@ -36,7 +36,6 @@ builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // Register Services
-builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IPropertyAnalyserService, PropertyAnalyserService>();
 
 // Register HttpClient for property data fetchers
