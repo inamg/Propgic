@@ -6,6 +6,7 @@ public class PropertyAnalysis : BaseEntity
 {
     public string PropertyAddress { get; set; } = string.Empty;
     public string AnalyserType { get; set; } = string.Empty;
+    public string SourceType { get; set; } = "Address"; // Address or Url
     public string Status { get; set; } = "Pending"; // Pending, InProgress, Completed, Failed
     public string? AnalysisResult { get; set; }
     public decimal? AnalysisScore { get; set; }

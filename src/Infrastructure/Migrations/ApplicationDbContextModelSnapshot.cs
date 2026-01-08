@@ -90,6 +90,11 @@ namespace Propgic.Infrastructure.Migrations
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)

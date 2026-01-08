@@ -49,6 +49,7 @@ public class PropertyAnalyserService : IPropertyAnalyserService
         analysis.Id = Guid.NewGuid();
         analysis.CreatedAt = DateTime.UtcNow;
         analysis.Status = "Pending";
+        analysis.SourceType = "Address";
 
         var createdAnalysis = await _propertyAnalysisRepository.AddAsync(analysis);
         await _unitOfWork.SaveChangesAsync();
@@ -64,6 +65,7 @@ public class PropertyAnalyserService : IPropertyAnalyserService
             Id = Guid.NewGuid(),
             PropertyAddress = createDto.PropertyUrl,
             AnalyserType = createDto.AnalyserType,
+            SourceType = "Url",
             CreatedAt = DateTime.UtcNow,
             Status = "Pending"
         };

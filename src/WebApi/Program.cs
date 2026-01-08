@@ -60,7 +60,6 @@ builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.Pro
 
 // Register Property Analysers
 builder.Services.AddScoped<IPropertyAnalyser, PropertyAnchorAnalyser>();
-builder.Services.AddScoped<IPropertyAnalyser, PropertyAnchorUrlAnalyser>();
 
 // Configure CORS
 builder.Services.AddCors(options =>

@@ -23,8 +23,16 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
 
         try
         {
-            // Fetch property data from multiple sources
-            var propertyData = await FetchPropertyDataAsync(propertyAnalysis.PropertyAddress);
+            // Fetch property data based on SourceType
+            PropertyDataDto propertyData;
+            if (propertyAnalysis.SourceType == "Url")
+            {
+                propertyData = await _dataAggregator.FetchFromUrlAsync(propertyAnalysis.PropertyAddress);
+            }
+            else
+            {
+                propertyData = await _dataAggregator.FetchAndAggregateAsync(propertyAnalysis.PropertyAddress);
+            }
 
             // Perform analysis
             var score = CalculateAnchorScore(propertyData);
@@ -35,7 +43,15 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
             propertyAnalysis.AnalysisResult = result;
             propertyAnalysis.Status = "Completed";
             propertyAnalysis.CompletedAt = DateTime.UtcNow;
-            propertyAnalysis.Remarks = "Analysis completed successfully using PropertyAnchor analyzer with 35 weighted attributes from web sources";
+
+            if (propertyAnalysis.SourceType == "Url")
+            {
+                propertyAnalysis.Remarks = "Analysis completed successfully using PropertyAnchor analyzer with 35 weighted attributes from direct URL";
+            }
+            else
+            {
+                propertyAnalysis.Remarks = "Analysis completed successfully using PropertyAnchor analyzer with 35 weighted attributes from web sources";
+            }
 
             return propertyAnalysis;
         }
@@ -45,12 +61,6 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
             propertyAnalysis.Remarks = $"Analysis failed: {ex.Message}";
             return propertyAnalysis;
         }
-    }
-
-    private async Task<PropertyDataDto> FetchPropertyDataAsync(string propertyAddress)
-    {
-        // Fetch and aggregate data from multiple Australian property websites
-        return await _dataAggregator.FetchAndAggregateAsync(propertyAddress);
     }
 
     private decimal CalculateAnchorScore(PropertyDataDto propertyData)

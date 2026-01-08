@@ -33,6 +33,7 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.PropertyAddress).IsRequired().HasMaxLength(500);
             entity.Property(e => e.AnalyserType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.SourceType).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Status).IsRequired().HasMaxLength(50);
             entity.Property(e => e.AnalysisScore).HasColumnType("decimal(18,2)");
             entity.Property(e => e.Remarks).HasMaxLength(2000);
