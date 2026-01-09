@@ -1,4 +1,4 @@
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using Propgic.Application.DTOs;
 
 namespace Propgic.Application.Services.PropertyDataFetchers;
@@ -7,7 +7,6 @@ public class DomainComAuFetcher : IPropertyDataFetcher
 {
     private readonly ChatGptUrlDiscoveryService _chatGptService;
     private readonly SeleniumWebScraperService _seleniumService;
-    private const string BaseUrl = "https://www.domain.com.au";
 
     public int Priority => 1;
     public string SourceName => "Domain.com.au";
@@ -22,31 +21,19 @@ public class DomainComAuFetcher : IPropertyDataFetcher
     {
         try
         {
-            // Step 1: Use ChatGPT to get the suggested URL
-            var domainUrl = await _chatGptService.GetPropertyUrlAsync(propertyAddress, "domain.com.au");
+            Console.WriteLine($"Fetching property data for: {propertyAddress} via OpenAI");
 
-            string? pageContent = null;
+            // Ask OpenAI directly for property data based on the address
+            var propertyData = await _chatGptService.GetPropertyDataAsync(propertyAddress);
 
-            if (!string.IsNullOrEmpty(domainUrl))
+            if (propertyData != null)
             {
-                // Step 2: Use Selenium to fetch the page content from ChatGPT URL
-                pageContent = await _seleniumService.GetPageContentAsync(domainUrl);
+                Console.WriteLine($"OpenAI successfully provided property data for: {propertyAddress}");
+                return propertyData;
             }
 
-            // Fallback: If ChatGPT URL failed, use Selenium to search directly
-            if (string.IsNullOrEmpty(pageContent))
-            {
-                var searchUrl = $"{BaseUrl}/sale/";
-                pageContent = await _seleniumService.SearchAndGetContentAsync(searchUrl, propertyAddress, "/property/");
-            }
-
-            if (string.IsNullOrEmpty(pageContent))
-            {
-                Console.WriteLine($"Could not fetch property data for {propertyAddress} from Domain.com.au");
-                return null;
-            }
-
-            return ParsePropertyData(pageContent, propertyAddress);
+            Console.WriteLine($"OpenAI could not provide property data for: {propertyAddress}");
+            return null;
         }
         catch (Exception ex)
         {
@@ -83,197 +70,637 @@ public class DomainComAuFetcher : IPropertyDataFetcher
     {
         var propertyData = new PropertyDataDto();
 
-        // Extract property type from HTML
+        // Extract basic property information from Domain.com.au HTML
         propertyData.PropertyType = ExtractPropertyType(htmlContent);
-        propertyData.LandOwnership = "Freehold"; // Default assumption
+        propertyData.LandOwnership = ExtractLandOwnership(htmlContent);
         propertyData.HasClearTitle = true;
         propertyData.HasEncumbrances = false;
-        propertyData.Zoning = DetermineZoning(address);
-        propertyData.LocationCategory = DetermineLocationCategory(address);
-        propertyData.DistanceToCbdKm = EstimateDistanceToCbd(address);
+        propertyData.Zoning = DetermineZoning(htmlContent, address);
+        propertyData.LocationCategory = DetermineLocationCategory(htmlContent, address);
+        propertyData.DistanceToCbdKm = EstimateDistanceToCbd(htmlContent, address);
 
-        // Extract school zone information
+        // Extract school zone and transport information
         propertyData.SchoolZoneQuality = ExtractSchoolZoneQuality(htmlContent);
         propertyData.DistanceToPublicTransportMeters = ExtractTransportDistance(htmlContent);
 
-        // Extract rental and financial data
-        propertyData.RentalYieldPercentage = ExtractRentalYield(htmlContent);
-        propertyData.CapitalGrowthPercentage = ExtractCapitalGrowth(htmlContent);
-        propertyData.VacancyRatePercentage = 2.0m; // Default based on national average
-        propertyData.LocalDemand = DetermineLocalDemand(address);
+        // Extract price and calculate rental/financial data
+        var price = ExtractPrice(htmlContent);
+        var bedrooms = ExtractBedrooms(htmlContent);
+        var landSize = ExtractLandSize(htmlContent);
 
-        // Property condition
-        propertyData.HasStructuralIssues = false;
+        propertyData.RentalYieldPercentage = CalculateRentalYield(price, bedrooms, propertyData.LocationCategory);
+        propertyData.CapitalGrowthPercentage = ExtractCapitalGrowth(htmlContent, propertyData.LocationCategory);
+        propertyData.VacancyRatePercentage = DetermineVacancyRate(propertyData.LocationCategory);
+        propertyData.LocalDemand = DetermineLocalDemand(htmlContent, address);
+
+        // Property condition based on age and features
         propertyData.PropertyAgeYears = ExtractPropertyAge(htmlContent);
-        propertyData.HasMajorDefects = false;
-        propertyData.MaintenanceLevel = "Minimal";
-        propertyData.MeetsCurrentBuildingCodes = true;
+        propertyData.HasStructuralIssues = DetermineStructuralIssues(htmlContent, propertyData.PropertyAgeYears);
+        propertyData.HasMajorDefects = DetermineMajorDefects(htmlContent);
+        propertyData.MaintenanceLevel = DetermineMaintenanceLevel(htmlContent, propertyData.PropertyAgeYears);
+        propertyData.MeetsCurrentBuildingCodes = propertyData.PropertyAgeYears < 30;
         propertyData.HasRequiredCertificates = true;
 
         // Tenancy information
-        propertyData.HasLongTermTenants = true;
+        propertyData.HasLongTermTenants = ExtractTenancyStatus(htmlContent);
         propertyData.HasReliablePaymentHistory = true;
-        propertyData.LeaseRemainingMonths = 12;
+        propertyData.LeaseRemainingMonths = ExtractLeaseRemaining(htmlContent);
         propertyData.HasConsistentRentalHistory = true;
 
-        // Financial metrics
-        propertyData.CashFlowCoverageRatio = 1.2m;
-        propertyData.MeetsServiceabilityRequirements = true;
-        propertyData.LoanToValueRatio = 75m;
-        propertyData.AnnualInsuranceCost = 1500m;
-        propertyData.SuitableForCrossCollateral = true;
-        propertyData.EquityAvailable = 100000m;
-        propertyData.EligibleForRefinance = true;
+        // Financial metrics based on price
+        propertyData.CashFlowCoverageRatio = CalculateCashFlowCoverage(price, propertyData.RentalYieldPercentage);
+        propertyData.MeetsServiceabilityRequirements = price < 2000000;
+        propertyData.LoanToValueRatio = 80m;
+        propertyData.AnnualInsuranceCost = CalculateInsuranceCost(price, propertyData.PropertyType);
+        propertyData.SuitableForCrossCollateral = price > 500000 && propertyData.PropertyType != "Unit";
+        propertyData.EquityAvailable = price * 0.2m;
+        propertyData.EligibleForRefinance = propertyData.PropertyAgeYears < 40;
 
         // Market metrics
-        propertyData.HasStableSaleHistory = true;
+        propertyData.HasStableSaleHistory = ExtractSaleHistory(htmlContent);
         propertyData.YearsSinceLastSale = ExtractYearsSinceLastSale(htmlContent);
         propertyData.DaysOnMarket = ExtractDaysOnMarket(htmlContent);
         propertyData.HasStrongComparables = true;
-        propertyData.IsUniqueProperty = false;
+        propertyData.IsUniqueProperty = DetermineUniqueness(landSize, propertyData.PropertyType);
 
         // Risk assessment
-        propertyData.AcceptedByMajorLenders = true;
-        propertyData.RiskRating = "Low";
-        propertyData.HasDevelopmentRisk = false;
+        propertyData.AcceptedByMajorLenders = DetermineLenderAcceptance(propertyData.PropertyType, landSize, price);
+        propertyData.RiskRating = DetermineRiskRating(propertyData);
+        propertyData.HasDevelopmentRisk = ExtractDevelopmentRisk(htmlContent);
         propertyData.FitsPortfolioDiversity = true;
-        propertyData.ViableForLongTermHold = true;
+        propertyData.ViableForLongTermHold = propertyData.LocationCategory == "Metro" || propertyData.CapitalGrowthPercentage > 3;
+
+        Console.WriteLine($"Parsed property: Type={propertyData.PropertyType}, Price=${price:N0}, Beds={bedrooms}, Land={landSize}sqm, Age={propertyData.PropertyAgeYears}yrs");
 
         return propertyData;
     }
 
+    #region Property Type and Basic Info Extraction
+
     private string ExtractPropertyType(string htmlContent)
     {
-        // Look for property type in HTML
-        if (htmlContent.Contains("House", StringComparison.OrdinalIgnoreCase))
-            return "House";
-        if (htmlContent.Contains("Apartment", StringComparison.OrdinalIgnoreCase) ||
-            htmlContent.Contains("Unit", StringComparison.OrdinalIgnoreCase))
-            return "Unit";
-        if (htmlContent.Contains("Townhouse", StringComparison.OrdinalIgnoreCase))
-            return "Townhouse";
-        if (htmlContent.Contains("Duplex", StringComparison.OrdinalIgnoreCase))
-            return "Duplex";
+        // Domain.com.au uses property type in various places - meta tags, breadcrumbs, and listing details
+        // Pattern: "property-info-address" or "listing-details__summary-title" sections
 
-        return "House"; // Default
+        var patterns = new[]
+        {
+            @"property[_-]?type[""']?\s*[>:]\s*([^<,]+)",
+            @"<span[^>]*class=""[^""]*property-feature[^""]*""[^>]*>\s*(\w+)\s*</span>",
+            @"listing-details__summary-title[^>]*>\s*(\w+)\s+for",
+            @"breadcrumb[^>]*>\s*<[^>]*>\s*(House|Apartment|Unit|Townhouse|Villa|Duplex|Land)",
+        };
+
+        foreach (var pattern in patterns)
+        {
+            var match = Regex.Match(htmlContent, pattern, RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var type = match.Groups[1].Value.Trim();
+                return NormalizePropertyType(type);
+            }
+        }
+
+        // Fallback: search for property type keywords in content
+        if (Regex.IsMatch(htmlContent, @"\b(apartment|unit|flat)\b", RegexOptions.IgnoreCase))
+            return "Unit";
+        if (Regex.IsMatch(htmlContent, @"\btownhouse\b", RegexOptions.IgnoreCase))
+            return "Townhouse";
+        if (Regex.IsMatch(htmlContent, @"\bvilla\b", RegexOptions.IgnoreCase))
+            return "Villa";
+        if (Regex.IsMatch(htmlContent, @"\bduplex\b", RegexOptions.IgnoreCase))
+            return "Duplex";
+        if (Regex.IsMatch(htmlContent, @"\bvacant\s+land\b", RegexOptions.IgnoreCase))
+            return "Land";
+
+        return "House";
     }
 
-    private string DetermineZoning(string address)
+    private string NormalizePropertyType(string type)
     {
-        // Simple heuristic based on address patterns
-        if (address.Contains("Industrial", StringComparison.OrdinalIgnoreCase))
-            return "Industrial";
-        if (address.Contains("Commercial", StringComparison.OrdinalIgnoreCase))
+        type = type.Trim().ToLower();
+        return type switch
+        {
+            "apartment" or "unit" or "flat" => "Unit",
+            "townhouse" or "terrace" => "Townhouse",
+            "villa" => "Villa",
+            "duplex" or "semi" => "Duplex",
+            "land" or "vacant land" => "Land",
+            _ => "House"
+        };
+    }
+
+    private string ExtractLandOwnership(string htmlContent)
+    {
+        // Look for strata/body corporate mentions
+        if (Regex.IsMatch(htmlContent, @"\b(strata|body\s+corporate|owners\s+corporation)\b", RegexOptions.IgnoreCase))
+            return "Strata";
+        if (Regex.IsMatch(htmlContent, @"\bleasehold\b", RegexOptions.IgnoreCase))
+            return "Leasehold";
+
+        return "Freehold";
+    }
+
+    #endregion
+
+    #region Price and Property Features Extraction
+
+    private decimal ExtractPrice(string htmlContent)
+    {
+        // Domain.com.au price patterns
+        var patterns = new[]
+        {
+            @"\$\s*([\d,]+(?:\.\d{2})?)\s*(?:million|m)\b",
+            @"price[""']?\s*[>:]\s*\$?\s*([\d,]+)",
+            @"listing-details__summary-price[^>]*>\s*\$?\s*([\d,]+)",
+            @"\$\s*([\d]{1,3}(?:,\d{3})*(?:\.\d{2})?)",
+            @"([\d]{1,3}(?:,\d{3})+)\s*(?:asking|guide|price)",
+        };
+
+        foreach (var pattern in patterns)
+        {
+            var match = Regex.Match(htmlContent, pattern, RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var priceStr = match.Groups[1].Value.Replace(",", "");
+                if (decimal.TryParse(priceStr, out var price))
+                {
+                    // Check if it's in millions
+                    if (htmlContent.ToLower().Contains("million") || htmlContent.ToLower().Contains(" m "))
+                    {
+                        if (price < 100) price *= 1_000_000;
+                    }
+                    if (price > 10000) return price;
+                }
+            }
+        }
+
+        return 800000m; // Default estimate
+    }
+
+    private int ExtractBedrooms(string htmlContent)
+    {
+        // Domain uses icons with bed count - patterns like "4 Beds" or data attributes
+        var patterns = new[]
+        {
+            @"(\d+)\s*(?:bed|bedroom|br)\b",
+            @"bed[^>]*>\s*(\d+)",
+            @"(\d+)\s*<[^>]*bed",
+            @"property-feature__feature[^>]*bed[^>]*>\s*(\d+)",
+        };
+
+        foreach (var pattern in patterns)
+        {
+            var match = Regex.Match(htmlContent, pattern, RegexOptions.IgnoreCase);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var beds))
+            {
+                if (beds is >= 1 and <= 10) return beds;
+            }
+        }
+
+        return 3; // Default
+    }
+
+    private int ExtractLandSize(string htmlContent)
+    {
+        // Land size patterns - "450 m²", "450m2", "450 sqm", "land size: 450"
+        var patterns = new[]
+        {
+            @"land\s*(?:size|area)?[:\s]*(\d+(?:,\d+)?)\s*(?:m²|m2|sqm|square)",
+            @"(\d{2,4})\s*(?:m²|m2|sqm)\s*(?:land|block|lot)",
+            @"(\d{2,4})\s*(?:m²|m2|sqm)",
+            @"block\s*(?:size)?[:\s]*(\d+)",
+        };
+
+        foreach (var pattern in patterns)
+        {
+            var match = Regex.Match(htmlContent, pattern, RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var sizeStr = match.Groups[1].Value.Replace(",", "");
+                if (int.TryParse(sizeStr, out var size) && size is >= 50 and <= 100000)
+                {
+                    return size;
+                }
+            }
+        }
+
+        return 600; // Default suburban block
+    }
+
+    #endregion
+
+    #region Location and Zoning
+
+    private string DetermineZoning(string htmlContent, string address)
+    {
+        if (Regex.IsMatch(htmlContent, @"\b(commercial|retail|shop|office)\s*(zone|property|use)\b", RegexOptions.IgnoreCase))
             return "Commercial";
+        if (Regex.IsMatch(htmlContent, @"\b(industrial|warehouse|factory)\b", RegexOptions.IgnoreCase))
+            return "Industrial";
+        if (Regex.IsMatch(htmlContent, @"\b(mixed\s*use|live.work)\b", RegexOptions.IgnoreCase))
+            return "Mixed";
+        if (Regex.IsMatch(htmlContent, @"\b(rural|farm|acreage|agricultural)\b", RegexOptions.IgnoreCase))
+            return "Rural";
 
         return "Residential";
     }
 
-    private string DetermineLocationCategory(string address)
+    private string DetermineLocationCategory(string htmlContent, string address)
     {
-        // Major Australian cities
-        var metroCities = new[] { "Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Canberra" };
+        var combined = $"{htmlContent} {address}".ToLower();
 
-        foreach (var city in metroCities)
+        // NSW suburbs classification
+        var metroSuburbs = new[]
         {
-            if (address.Contains(city, StringComparison.OrdinalIgnoreCase))
+            "sydney", "parramatta", "chatswood", "bondi", "manly", "newcastle",
+            "wollongong", "kellyville", "castle hill", "rouse hill", "baulkham hills",
+            "north kellyville", "bella vista", "norwest"
+        };
+
+        var regionalCities = new[]
+        {
+            "dubbo", "tamworth", "wagga", "orange", "bathurst", "albury", "port macquarie"
+        };
+
+        foreach (var suburb in metroSuburbs)
+        {
+            if (combined.Contains(suburb))
+                return "Metro";
+        }
+
+        foreach (var city in regionalCities)
+        {
+            if (combined.Contains(city))
+                return "Regional";
+        }
+
+        // Check state capitals
+        if (Regex.IsMatch(combined, @"\b(melbourne|brisbane|perth|adelaide|canberra|hobart|darwin)\b"))
+            return "Metro";
+
+        // Check for NSW postcode patterns (2000-2999 metro, others regional)
+        var postcodeMatch = Regex.Match(address, @"\b(2\d{3})\b");
+        if (postcodeMatch.Success && int.TryParse(postcodeMatch.Groups[1].Value, out var postcode))
+        {
+            if (postcode is >= 2000 and <= 2234 or >= 2555 and <= 2574 or >= 2745 and <= 2770)
                 return "Metro";
         }
 
         return "Regional";
     }
 
-    private int EstimateDistanceToCbd(string address)
+    private int EstimateDistanceToCbd(string htmlContent, string address)
     {
-        // TODO: Integrate with Google Maps API or similar for accurate distance
-        // For now, use simple heuristics
-        var innerSuburbs = new[] { "CBD", "City", "Central" };
+        var combined = $"{htmlContent} {address}".ToLower();
 
-        foreach (var suburb in innerSuburbs)
+        // Check for distance mentions
+        var distMatch = Regex.Match(combined, @"(\d+(?:\.\d+)?)\s*km\s*(?:to|from)\s*(?:cbd|city)", RegexOptions.IgnoreCase);
+        if (distMatch.Success && int.TryParse(distMatch.Groups[1].Value, out var dist))
+            return dist;
+
+        // Estimate based on suburb knowledge
+        var innerSuburbs = new Dictionary<string, int>
         {
-            if (address.Contains(suburb, StringComparison.OrdinalIgnoreCase))
-                return 5;
+            { "cbd", 0 }, { "city", 0 }, { "central", 2 },
+            { "surry hills", 2 }, { "pyrmont", 3 }, { "glebe", 4 },
+            { "newtown", 5 }, { "bondi", 8 }, { "manly", 15 },
+            { "parramatta", 24 }, { "chatswood", 10 }, { "hornsby", 25 },
+            { "kellyville", 35 }, { "north kellyville", 38 }, { "castle hill", 30 },
+            { "rouse hill", 40 }, { "bella vista", 32 }
+        };
+
+        foreach (var (suburb, distance) in innerSuburbs)
+        {
+            if (combined.Contains(suburb))
+                return distance;
         }
 
-        return 20; // Default estimate
+        return 25; // Default
     }
+
+    #endregion
+
+    #region Schools and Transport
 
     private string ExtractSchoolZoneQuality(string htmlContent)
     {
-        // Look for school mentions in the content
-        if (htmlContent.Contains("selective", StringComparison.OrdinalIgnoreCase) ||
-            htmlContent.Contains("top-rated", StringComparison.OrdinalIgnoreCase))
+        var content = htmlContent.ToLower();
+
+        // Look for school names and quality indicators
+        if (Regex.IsMatch(content, @"\b(selective|grammar|private|prestigious)\s*school\b"))
             return "Top-tier";
 
-        if (htmlContent.Contains("good schools", StringComparison.OrdinalIgnoreCase))
+        if (Regex.IsMatch(content, @"\b(excellent|great|quality)\s*school\b"))
             return "Good";
+
+        // Check for specific school catchment mentions
+        if (Regex.IsMatch(content, @"\bschool\s*(catchment|zone)\b"))
+            return "Good";
+
+        if (content.Contains("school"))
+            return "Average";
 
         return "Average";
     }
 
     private int ExtractTransportDistance(string htmlContent)
     {
-        // Look for transport mentions
-        if (htmlContent.Contains("train station nearby", StringComparison.OrdinalIgnoreCase))
+        var content = htmlContent.ToLower();
+
+        // Look for specific distance mentions
+        var distMatch = Regex.Match(content, @"(\d+)\s*(?:m|meters?|metres?)\s*(?:to|from)\s*(?:station|bus|train|transport)");
+        if (distMatch.Success && int.TryParse(distMatch.Groups[1].Value, out var meters))
+            return meters;
+
+        // Keyword-based estimation
+        if (Regex.IsMatch(content, @"\b(next\s+to|adjacent|opposite)\s*(?:station|bus\s+stop)\b"))
+            return 100;
+        if (Regex.IsMatch(content, @"\b(walking\s+distance|short\s+walk)\s*(?:to)?\s*(?:station|transport)\b"))
             return 400;
+        if (content.Contains("train station") || content.Contains("metro station"))
+            return 600;
+        if (content.Contains("bus"))
+            return 300;
 
-        return 800; // Default estimate
+        return 800;
     }
 
-    private decimal ExtractRentalYield(string htmlContent)
+    #endregion
+
+    #region Financial Calculations
+
+    private decimal CalculateRentalYield(decimal price, int bedrooms, string locationCategory)
     {
-        // TODO: Parse actual rental yield from HTML or calculate from price/rent
-        return 4.0m; // Default estimate
+        if (price <= 0) return 4.0m;
+
+        // Estimate weekly rent based on bedrooms and location
+        decimal weeklyRent = (bedrooms, locationCategory) switch
+        {
+            (1, "Metro") => 500m,
+            (2, "Metro") => 650m,
+            (3, "Metro") => 750m,
+            (4, "Metro") => 900m,
+            (>= 5, "Metro") => 1100m,
+            (1, _) => 350m,
+            (2, _) => 450m,
+            (3, _) => 550m,
+            (4, _) => 650m,
+            _ => 750m
+        };
+
+        var annualRent = weeklyRent * 52;
+        var yield = (annualRent / price) * 100;
+
+        return Math.Round(yield, 2);
     }
 
-    private decimal ExtractCapitalGrowth(string htmlContent)
+    private decimal ExtractCapitalGrowth(string htmlContent, string locationCategory)
     {
-        // TODO: Parse historical growth data
-        return 5.5m; // Default estimate
+        // Look for growth mentions in content
+        var growthMatch = Regex.Match(htmlContent, @"(\d+(?:\.\d+)?)\s*%?\s*(?:growth|appreciation|increase)", RegexOptions.IgnoreCase);
+        if (growthMatch.Success && decimal.TryParse(growthMatch.Groups[1].Value, out var growth))
+        {
+            if (growth is > 0 and < 30) return growth;
+        }
+
+        // Default based on location
+        return locationCategory switch
+        {
+            "Metro" => 6.5m,
+            "Regional" => 4.5m,
+            _ => 5.0m
+        };
     }
+
+    private decimal DetermineVacancyRate(string locationCategory)
+    {
+        return locationCategory switch
+        {
+            "Metro" => 1.5m,
+            "Regional" => 2.5m,
+            _ => 2.0m
+        };
+    }
+
+    private decimal CalculateCashFlowCoverage(decimal price, decimal rentalYield)
+    {
+        if (price <= 0 || rentalYield <= 0) return 1.0m;
+
+        var annualRent = price * (rentalYield / 100);
+        var estimatedMortgage = price * 0.8m * 0.06m; // 80% LVR at 6% interest
+
+        return annualRent > 0 ? Math.Round(annualRent / estimatedMortgage, 2) : 1.0m;
+    }
+
+    private decimal CalculateInsuranceCost(decimal price, string propertyType)
+    {
+        var baseRate = propertyType switch
+        {
+            "Unit" => 0.001m,
+            "Townhouse" => 0.0012m,
+            _ => 0.0015m
+        };
+
+        return Math.Round(price * baseRate, 0);
+    }
+
+    #endregion
+
+    #region Property Condition Assessment
 
     private int ExtractPropertyAge(string htmlContent)
     {
-        // Look for build year or age mentions
-        // TODO: Implement actual parsing
-        return 15; // Default estimate
+        // Look for build year
+        var yearMatch = Regex.Match(htmlContent, @"\b(built|constructed|erected)\s*(?:in)?\s*(19\d{2}|20[0-2]\d)\b", RegexOptions.IgnoreCase);
+        if (yearMatch.Success && int.TryParse(yearMatch.Groups[2].Value, out var year))
+        {
+            return DateTime.Now.Year - year;
+        }
+
+        // Look for age mentions
+        var ageMatch = Regex.Match(htmlContent, @"(\d+)\s*(?:year|yr)s?\s*old\b", RegexOptions.IgnoreCase);
+        if (ageMatch.Success && int.TryParse(ageMatch.Groups[1].Value, out var age))
+        {
+            return age;
+        }
+
+        // Keyword-based estimation
+        if (Regex.IsMatch(htmlContent, @"\b(brand\s*new|newly\s*built|just\s*completed)\b", RegexOptions.IgnoreCase))
+            return 1;
+        if (Regex.IsMatch(htmlContent, @"\b(modern|contemporary|recent)\b", RegexOptions.IgnoreCase))
+            return 5;
+        if (Regex.IsMatch(htmlContent, @"\b(renovated|updated|refreshed)\b", RegexOptions.IgnoreCase))
+            return 15;
+        if (Regex.IsMatch(htmlContent, @"\b(character|period|heritage|federation)\b", RegexOptions.IgnoreCase))
+            return 80;
+        if (Regex.IsMatch(htmlContent, @"\b(original|classic)\b", RegexOptions.IgnoreCase))
+            return 40;
+
+        return 20;
+    }
+
+    private bool DetermineStructuralIssues(string htmlContent, int propertyAge)
+    {
+        if (Regex.IsMatch(htmlContent, @"\b(structural\s*issues?|foundation\s*problems?|subsidence|cracking)\b", RegexOptions.IgnoreCase))
+            return true;
+
+        return propertyAge > 60;
+    }
+
+    private bool DetermineMajorDefects(string htmlContent)
+    {
+        return Regex.IsMatch(htmlContent, @"\b(major\s*defects?|significant\s*repairs?|asbestos|termite\s*damage)\b", RegexOptions.IgnoreCase);
+    }
+
+    private string DetermineMaintenanceLevel(string htmlContent, int propertyAge)
+    {
+        if (Regex.IsMatch(htmlContent, @"\b(immaculate|pristine|perfect\s*condition|no\s*work\s*required)\b", RegexOptions.IgnoreCase))
+            return "Minimal";
+        if (Regex.IsMatch(htmlContent, @"\b(good\s*condition|well\s*maintained|neat)\b", RegexOptions.IgnoreCase))
+            return "Minimal";
+        if (Regex.IsMatch(htmlContent, @"\b(needs?\s*work|renovation\s*potential|handyman|fixer)\b", RegexOptions.IgnoreCase))
+            return "Extensive";
+        if (Regex.IsMatch(htmlContent, @"\b(some\s*work|minor\s*repairs?|could\s*use)\b", RegexOptions.IgnoreCase))
+            return "Moderate";
+
+        return propertyAge > 30 ? "Moderate" : "Minimal";
+    }
+
+    #endregion
+
+    #region Tenancy and Lease
+
+    private bool ExtractTenancyStatus(string htmlContent)
+    {
+        if (Regex.IsMatch(htmlContent, @"\b(tenanted|leased|rental\s*income|currently\s*rented)\b", RegexOptions.IgnoreCase))
+            return true;
+        if (Regex.IsMatch(htmlContent, @"\b(vacant\s*possession|owner\s*occupied|move\s*straight\s*in)\b", RegexOptions.IgnoreCase))
+            return false;
+
+        return false;
+    }
+
+    private int ExtractLeaseRemaining(string htmlContent)
+    {
+        var leaseMatch = Regex.Match(htmlContent, @"(\d+)\s*(?:month|mth)s?\s*(?:remaining|left|lease)", RegexOptions.IgnoreCase);
+        if (leaseMatch.Success && int.TryParse(leaseMatch.Groups[1].Value, out var months))
+            return months;
+
+        if (ExtractTenancyStatus(htmlContent))
+            return 6; // Assume some lease remaining if tenanted
+
+        return 0;
+    }
+
+    #endregion
+
+    #region Market and Sale History
+
+    private bool ExtractSaleHistory(string htmlContent)
+    {
+        // Check for sale history section
+        return Regex.IsMatch(htmlContent, @"\b(sale\s*history|previous(ly)?\s*sold|last\s*sold)\b", RegexOptions.IgnoreCase);
     }
 
     private int ExtractYearsSinceLastSale(string htmlContent)
     {
-        // TODO: Parse last sale date
-        return 3; // Default estimate
+        // Look for last sold date
+        var soldMatch = Regex.Match(htmlContent, @"(?:last\s*)?sold\s*(?:in|on)?\s*(?:\w+\s*)?(20[0-2]\d|19\d{2})", RegexOptions.IgnoreCase);
+        if (soldMatch.Success && int.TryParse(soldMatch.Groups[1].Value, out var year))
+        {
+            return DateTime.Now.Year - year;
+        }
+
+        var monthsMatch = Regex.Match(htmlContent, @"sold\s*(\d+)\s*(?:month|year)s?\s*ago", RegexOptions.IgnoreCase);
+        if (monthsMatch.Success && int.TryParse(monthsMatch.Groups[1].Value, out var time))
+        {
+            if (htmlContent.ToLower().Contains("month"))
+                return time / 12;
+            return time;
+        }
+
+        return 5; // Default
     }
 
     private int ExtractDaysOnMarket(string htmlContent)
     {
-        // TODO: Parse actual days on market
-        return 25; // Default estimate
+        var daysMatch = Regex.Match(htmlContent, @"(\d+)\s*days?\s*(?:on\s*market|listed)", RegexOptions.IgnoreCase);
+        if (daysMatch.Success && int.TryParse(daysMatch.Groups[1].Value, out var days))
+            return days;
+
+        if (Regex.IsMatch(htmlContent, @"\b(just\s*listed|new\s*listing|hot\s*property)\b", RegexOptions.IgnoreCase))
+            return 7;
+
+        return 30;
     }
 
-    private string DetermineLocalDemand(string address)
+    private string DetermineLocalDemand(string htmlContent, string address)
     {
-        // Simple heuristic based on location
-        var highDemandAreas = new[] { "Sydney", "Melbourne", "Inner" };
+        var combined = $"{htmlContent} {address}".ToLower();
 
+        if (Regex.IsMatch(combined, @"\b(high\s*demand|sought\s*after|popular|hot\s*market)\b"))
+            return "High";
+        if (Regex.IsMatch(combined, @"\b(low\s*demand|quiet\s*market|buyers?\s*market)\b"))
+            return "Low";
+
+        // High demand Sydney areas
+        var highDemandAreas = new[] { "sydney", "inner west", "eastern suburbs", "north shore", "northern beaches" };
         foreach (var area in highDemandAreas)
         {
-            if (address.Contains(area, StringComparison.OrdinalIgnoreCase))
+            if (combined.Contains(area))
                 return "High";
         }
 
         return "Medium";
     }
 
-    // Helper classes for JSON deserialization
-    private class DomainSearchResponse
+    #endregion
+
+    #region Risk Assessment
+
+    private bool DetermineUniqueness(int landSize, string propertyType)
     {
-        public List<DomainSearchResult>? Results { get; set; }
+        // Large blocks or unusual property types are considered unique
+        if (landSize > 2000) return true;
+        if (propertyType is "Land" or "Duplex") return true;
+
+        return false;
     }
 
-    private class DomainSearchResult
+    private bool DetermineLenderAcceptance(string propertyType, int landSize, decimal price)
     {
-        public string? Id { get; set; }
-        public string? Address { get; set; }
+        // Lenders may reject certain properties
+        if (propertyType == "Land") return false;
+        if (landSize < 40) return false; // Tiny lots
+        if (price < 100000) return false; // Too cheap
+
+        return true;
     }
+
+    private string DetermineRiskRating(PropertyDataDto data)
+    {
+        var riskScore = 0;
+
+        if (data.HasStructuralIssues) riskScore += 3;
+        if (data.HasMajorDefects) riskScore += 3;
+        if (data.PropertyAgeYears > 50) riskScore += 2;
+        if (data.MaintenanceLevel == "Extensive") riskScore += 2;
+        if (data.VacancyRatePercentage > 5) riskScore += 2;
+        if (data.LocationCategory != "Metro") riskScore += 1;
+        if (!data.AcceptedByMajorLenders) riskScore += 3;
+
+        return riskScore switch
+        {
+            <= 2 => "Low",
+            <= 5 => "Medium",
+            _ => "High"
+        };
+    }
+
+    private bool ExtractDevelopmentRisk(string htmlContent)
+    {
+        return Regex.IsMatch(htmlContent, @"\b(development\s*site|subdivision\s*potential|da\s*approved|rezoning)\b", RegexOptions.IgnoreCase);
+    }
+
+    #endregion
 }

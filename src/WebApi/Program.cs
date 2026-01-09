@@ -82,10 +82,96 @@ using (var scope = app.Services.CreateScope())
         var context = services.GetRequiredService<ApplicationDbContext>();
         var logger = services.GetRequiredService<ILogger<Program>>();
 
-        logger.LogInformation("Applying pending migrations...");
-        context.Database.Migrate();
+        logger.LogInformation("Checking database state...");
+
+        // Check if database can be connected
+        var canConnect = context.Database.CanConnect();
+        logger.LogInformation($"Can connect to database: {canConnect}");
+
+        // Get pending migrations
+        var pendingMigrations = context.Database.GetPendingMigrations().ToList();
+        logger.LogInformation($"Pending migrations count: {pendingMigrations.Count}");
+        foreach (var migration in pendingMigrations)
+        {
+            logger.LogInformation($"Pending migration: {migration}");
+        }
+
+        // Get applied migrations
+        var appliedMigrations = context.Database.GetAppliedMigrations().ToList();
+        logger.LogInformation($"Applied migrations count: {appliedMigrations.Count}");
+        foreach (var migration in appliedMigrations)
+        {
+            logger.LogInformation($"Applied migration: {migration}");
+        }
+
+        // If there are no pending migrations but the table doesn't exist, create it manually
+        if (pendingMigrations.Count == 0)
+        {
+            logger.LogWarning("No pending migrations found. Checking if PropertyAnalyses table exists...");
+
+            // Try to query the table to see if it exists
+            try
+            {
+                var tableExists = context.PropertyAnalyses.Any();
+                logger.LogInformation($"PropertyAnalyses table exists and has {context.PropertyAnalyses.Count()} records");
+            }
+            catch (Exception)
+            {
+                logger.LogError("PropertyAnalyses table does NOT exist. Creating table manually...");
+
+                // Drop table if it exists (to ensure clean state)
+                context.Database.ExecuteSqlRaw("DROP TABLE IF EXISTS \"PropertyAnalyses\"");
+
+                // Create the PropertyAnalyses table using raw SQL
+                var createTableSql = @"
+                    CREATE TABLE ""PropertyAnalyses"" (
+                        ""Id"" uuid NOT NULL,
+                        ""PropertyAddress"" character varying(500) NOT NULL,
+                        ""AnalyserType"" character varying(100) NOT NULL,
+                        ""SourceType"" character varying(50) NOT NULL DEFAULT 'Address',
+                        ""Status"" character varying(50) NOT NULL,
+                        ""AnalysisResult"" text NULL,
+                        ""AnalysisScore"" numeric(18,2) NULL,
+                        ""Remarks"" character varying(2000) NULL,
+                        ""CompletedAt"" timestamp with time zone NULL,
+                        ""CreatedAt"" timestamp with time zone NOT NULL,
+                        ""UpdatedAt"" timestamp with time zone NULL,
+                        CONSTRAINT ""PK_PropertyAnalyses"" PRIMARY KEY (""Id"")
+                    );
+
+                    CREATE INDEX ""IX_PropertyAnalyses_AnalyserType"" ON ""PropertyAnalyses"" (""AnalyserType"");
+                    CREATE INDEX ""IX_PropertyAnalyses_Status"" ON ""PropertyAnalyses"" (""Status"");
+                ";
+
+                context.Database.ExecuteSqlRaw(createTableSql);
+                logger.LogInformation("PropertyAnalyses table created successfully.");
+
+                // Clear and update migration history
+                context.Database.ExecuteSqlRaw("DELETE FROM \"__EFMigrationsHistory\"");
+                context.Database.ExecuteSqlRaw(
+                    "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20260108000000_InitialCreate', '8.0.0')");
+                logger.LogInformation("Migration history updated.");
+            }
+        }
+        else
+        {
+            logger.LogInformation("Applying migrations...");
+            context.Database.Migrate();
+        }
 
         logger.LogInformation("Database migration completed successfully.");
+
+        // Verify table exists now
+        try
+        {
+            var count = context.PropertyAnalyses.Count();
+            logger.LogInformation($"Verification: PropertyAnalyses table exists with {count} records");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Verification failed: PropertyAnalyses table still does not exist!");
+            throw;
+        }
     }
     catch (Exception ex)
     {

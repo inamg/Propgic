@@ -10,7 +10,9 @@
       "Bash(dotnet tool install:*)",
       "Bash(dotnet restore:*)",
       "Bash(where:*)",
-      "Bash(dotnet run)"
+      "Bash(dotnet run)",
+      "Bash(timeout 15 dotnet run:*)",
+      "Bash(taskkill:*)"
     ]
   }
 }
