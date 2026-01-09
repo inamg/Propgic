@@ -92,28 +92,28 @@ public class PropertyDataAggregator
         }
     }
 
-    private PropertyDataDto AggregateResults(List<PropertyDataDto> results)
+    private static PropertyDataDto AggregateResults(List<PropertyDataDto> results)
     {
         // Use the first result as base and fill in missing data from others
         var aggregated = results.First();
 
-        // For numerical values, take the average
+        // For numerical values, take the average of non-null values
         if (results.Count > 1)
         {
-            aggregated.RentalYieldPercentage = results.Average(r => r.RentalYieldPercentage);
-            aggregated.CapitalGrowthPercentage = results.Average(r => r.CapitalGrowthPercentage);
-            aggregated.VacancyRatePercentage = results.Average(r => r.VacancyRatePercentage);
-            aggregated.PropertyAgeYears = (int)results.Average(r => r.PropertyAgeYears);
-            aggregated.DistanceToCbdKm = (int)results.Average(r => r.DistanceToCbdKm);
-            aggregated.DistanceToPublicTransportMeters = (int)results.Average(r => r.DistanceToPublicTransportMeters);
-            aggregated.CashFlowCoverageRatio = results.Average(r => r.CashFlowCoverageRatio);
-            aggregated.LoanToValueRatio = results.Average(r => r.LoanToValueRatio);
-            aggregated.EquityAvailable = results.Average(r => r.EquityAvailable);
-            aggregated.AnnualInsuranceCost = results.Average(r => r.AnnualInsuranceCost);
-            aggregated.YearsSinceLastSale = (int)results.Average(r => r.YearsSinceLastSale);
-            aggregated.DaysOnMarket = (int)results.Average(r => r.DaysOnMarket);
+            aggregated.RentalYieldPercentage = AverageNullable(results.Select(r => r.RentalYieldPercentage));
+            aggregated.CapitalGrowthPercentage = AverageNullable(results.Select(r => r.CapitalGrowthPercentage));
+            aggregated.VacancyRatePercentage = AverageNullable(results.Select(r => r.VacancyRatePercentage));
+            aggregated.PropertyAgeYears = AverageNullableInt(results.Select(r => r.PropertyAgeYears));
+            aggregated.DistanceToCbdKm = AverageNullableInt(results.Select(r => r.DistanceToCbdKm));
+            aggregated.DistanceToPublicTransportMeters = AverageNullableInt(results.Select(r => r.DistanceToPublicTransportMeters));
+            aggregated.CashFlowCoverageRatio = AverageNullable(results.Select(r => r.CashFlowCoverageRatio));
+            aggregated.LoanToValueRatio = AverageNullable(results.Select(r => r.LoanToValueRatio));
+            aggregated.EquityAvailable = AverageNullable(results.Select(r => r.EquityAvailable));
+            aggregated.AnnualInsuranceCost = AverageNullable(results.Select(r => r.AnnualInsuranceCost));
+            aggregated.YearsSinceLastSale = AverageNullableInt(results.Select(r => r.YearsSinceLastSale));
+            aggregated.DaysOnMarket = AverageNullableInt(results.Select(r => r.DaysOnMarket));
 
-            // For string values, use majority vote or first non-default value
+            // For string values, use majority vote or first non-null value
             aggregated.PropertyType = GetMostCommonValue(results.Select(r => r.PropertyType));
             aggregated.LandOwnership = GetMostCommonValue(results.Select(r => r.LandOwnership));
             aggregated.LocationCategory = GetMostCommonValue(results.Select(r => r.LocationCategory));
@@ -122,20 +122,42 @@ public class PropertyDataAggregator
             aggregated.MaintenanceLevel = GetMostCommonValue(results.Select(r => r.MaintenanceLevel));
             aggregated.RiskRating = GetMostCommonValue(results.Select(r => r.RiskRating));
 
-            // For boolean values, use majority vote
-            aggregated.HasClearTitle = results.Count(r => r.HasClearTitle) > results.Count / 2;
-            aggregated.HasEncumbrances = results.Count(r => r.HasEncumbrances) > results.Count / 2;
-            aggregated.HasStructuralIssues = results.Count(r => r.HasStructuralIssues) > results.Count / 2;
-            aggregated.HasMajorDefects = results.Count(r => r.HasMajorDefects) > results.Count / 2;
-            aggregated.IsUniqueProperty = results.Count(r => r.IsUniqueProperty) > results.Count / 2;
+            // For boolean values, use majority vote of non-null values
+            aggregated.HasClearTitle = MajorityVote(results.Select(r => r.HasClearTitle));
+            aggregated.HasEncumbrances = MajorityVote(results.Select(r => r.HasEncumbrances));
+            aggregated.HasStructuralIssues = MajorityVote(results.Select(r => r.HasStructuralIssues));
+            aggregated.HasMajorDefects = MajorityVote(results.Select(r => r.HasMajorDefects));
+            aggregated.IsUniqueProperty = MajorityVote(results.Select(r => r.IsUniqueProperty));
         }
 
         return aggregated;
     }
 
-    private string GetMostCommonValue(IEnumerable<string> values)
+    private static decimal? AverageNullable(IEnumerable<decimal?> values)
     {
-        return values
+        var nonNullValues = values.Where(v => v.HasValue).Select(v => v!.Value).ToList();
+        return nonNullValues.Count != 0 ? nonNullValues.Average() : null;
+    }
+
+    private static int? AverageNullableInt(IEnumerable<int?> values)
+    {
+        var nonNullValues = values.Where(v => v.HasValue).Select(v => v!.Value).ToList();
+        return nonNullValues.Count != 0 ? (int)nonNullValues.Average() : null;
+    }
+
+    private static bool? MajorityVote(IEnumerable<bool?> values)
+    {
+        var nonNullValues = values.Where(v => v.HasValue).Select(v => v!.Value).ToList();
+        if (nonNullValues.Count == 0) return null;
+        return nonNullValues.Count(v => v) > nonNullValues.Count / 2;
+    }
+
+    private static string? GetMostCommonValue(IEnumerable<string?> values)
+    {
+        var nonNullValues = values.Where(v => v != null).ToList();
+        if (nonNullValues.Count == 0) return null;
+
+        return nonNullValues
             .GroupBy(v => v)
             .OrderByDescending(g => g.Count())
             .First()

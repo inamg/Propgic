@@ -98,7 +98,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         propertyData.HasStructuralIssues = DetermineStructuralIssues(htmlContent, propertyData.PropertyAgeYears);
         propertyData.HasMajorDefects = DetermineMajorDefects(htmlContent);
         propertyData.MaintenanceLevel = DetermineMaintenanceLevel(htmlContent, propertyData.PropertyAgeYears);
-        propertyData.MeetsCurrentBuildingCodes = propertyData.PropertyAgeYears < 30;
+        propertyData.MeetsCurrentBuildingCodes = !propertyData.PropertyAgeYears.HasValue || propertyData.PropertyAgeYears.Value < 30;
         propertyData.HasRequiredCertificates = true;
 
         // Tenancy information
@@ -114,7 +114,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         propertyData.AnnualInsuranceCost = CalculateInsuranceCost(price, propertyData.PropertyType);
         propertyData.SuitableForCrossCollateral = price > 500000 && propertyData.PropertyType != "Unit";
         propertyData.EquityAvailable = price * 0.2m;
-        propertyData.EligibleForRefinance = propertyData.PropertyAgeYears < 40;
+        propertyData.EligibleForRefinance = !propertyData.PropertyAgeYears.HasValue || propertyData.PropertyAgeYears.Value < 40;
 
         // Market metrics
         propertyData.HasStableSaleHistory = ExtractSaleHistory(htmlContent);
@@ -128,7 +128,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         propertyData.RiskRating = DetermineRiskRating(propertyData);
         propertyData.HasDevelopmentRisk = ExtractDevelopmentRisk(htmlContent);
         propertyData.FitsPortfolioDiversity = true;
-        propertyData.ViableForLongTermHold = propertyData.LocationCategory == "Metro" || propertyData.CapitalGrowthPercentage > 3;
+        propertyData.ViableForLongTermHold = propertyData.LocationCategory == "Metro" || (propertyData.CapitalGrowthPercentage.HasValue && propertyData.CapitalGrowthPercentage.Value > 3);
 
         Console.WriteLine($"Parsed property: Type={propertyData.PropertyType}, Price=${price:N0}, Beds={bedrooms}, Land={landSize}sqm, Age={propertyData.PropertyAgeYears}yrs");
 
@@ -429,7 +429,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
 
     #region Financial Calculations
 
-    private decimal CalculateRentalYield(decimal price, int bedrooms, string locationCategory)
+    private static decimal? CalculateRentalYield(decimal price, int bedrooms, string? locationCategory)
     {
         if (price <= 0) return 4.0m;
 
@@ -454,7 +454,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         return Math.Round(yield, 2);
     }
 
-    private decimal ExtractCapitalGrowth(string htmlContent, string locationCategory)
+    private static decimal? ExtractCapitalGrowth(string htmlContent, string? locationCategory)
     {
         // Look for growth mentions in content
         var growthMatch = Regex.Match(htmlContent, @"(\d+(?:\.\d+)?)\s*%?\s*(?:growth|appreciation|increase)", RegexOptions.IgnoreCase);
@@ -472,7 +472,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         };
     }
 
-    private decimal DetermineVacancyRate(string locationCategory)
+    private static decimal? DetermineVacancyRate(string? locationCategory)
     {
         return locationCategory switch
         {
@@ -482,17 +482,17 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         };
     }
 
-    private decimal CalculateCashFlowCoverage(decimal price, decimal rentalYield)
+    private static decimal? CalculateCashFlowCoverage(decimal price, decimal? rentalYield)
     {
-        if (price <= 0 || rentalYield <= 0) return 1.0m;
+        if (price <= 0 || !rentalYield.HasValue || rentalYield.Value <= 0) return 1.0m;
 
-        var annualRent = price * (rentalYield / 100);
+        var annualRent = price * (rentalYield.Value / 100);
         var estimatedMortgage = price * 0.8m * 0.06m; // 80% LVR at 6% interest
 
         return annualRent > 0 ? Math.Round(annualRent / estimatedMortgage, 2) : 1.0m;
     }
 
-    private decimal CalculateInsuranceCost(decimal price, string propertyType)
+    private static decimal? CalculateInsuranceCost(decimal price, string? propertyType)
     {
         var baseRate = propertyType switch
         {
@@ -539,12 +539,12 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         return 20;
     }
 
-    private bool DetermineStructuralIssues(string htmlContent, int propertyAge)
+    private static bool DetermineStructuralIssues(string htmlContent, int? propertyAge)
     {
         if (Regex.IsMatch(htmlContent, @"\b(structural\s*issues?|foundation\s*problems?|subsidence|cracking)\b", RegexOptions.IgnoreCase))
             return true;
 
-        return propertyAge > 60;
+        return propertyAge.HasValue && propertyAge.Value > 60;
     }
 
     private bool DetermineMajorDefects(string htmlContent)
@@ -552,7 +552,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         return Regex.IsMatch(htmlContent, @"\b(major\s*defects?|significant\s*repairs?|asbestos|termite\s*damage)\b", RegexOptions.IgnoreCase);
     }
 
-    private string DetermineMaintenanceLevel(string htmlContent, int propertyAge)
+    private static string DetermineMaintenanceLevel(string htmlContent, int? propertyAge)
     {
         if (Regex.IsMatch(htmlContent, @"\b(immaculate|pristine|perfect\s*condition|no\s*work\s*required)\b", RegexOptions.IgnoreCase))
             return "Minimal";
@@ -563,7 +563,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         if (Regex.IsMatch(htmlContent, @"\b(some\s*work|minor\s*repairs?|could\s*use)\b", RegexOptions.IgnoreCase))
             return "Moderate";
 
-        return propertyAge > 30 ? "Moderate" : "Minimal";
+        return propertyAge.HasValue && propertyAge.Value > 30 ? "Moderate" : "Minimal";
     }
 
     #endregion
@@ -658,7 +658,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
 
     #region Risk Assessment
 
-    private bool DetermineUniqueness(int landSize, string propertyType)
+    private static bool DetermineUniqueness(int landSize, string? propertyType)
     {
         // Large blocks or unusual property types are considered unique
         if (landSize > 2000) return true;
@@ -667,7 +667,7 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         return false;
     }
 
-    private bool DetermineLenderAcceptance(string propertyType, int landSize, decimal price)
+    private static bool DetermineLenderAcceptance(string? propertyType, int landSize, decimal price)
     {
         // Lenders may reject certain properties
         if (propertyType == "Land") return false;
@@ -677,17 +677,17 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         return true;
     }
 
-    private string DetermineRiskRating(PropertyDataDto data)
+    private static string DetermineRiskRating(PropertyDataDto data)
     {
         var riskScore = 0;
 
-        if (data.HasStructuralIssues) riskScore += 3;
-        if (data.HasMajorDefects) riskScore += 3;
-        if (data.PropertyAgeYears > 50) riskScore += 2;
+        if (data.HasStructuralIssues == true) riskScore += 3;
+        if (data.HasMajorDefects == true) riskScore += 3;
+        if (data.PropertyAgeYears.HasValue && data.PropertyAgeYears.Value > 50) riskScore += 2;
         if (data.MaintenanceLevel == "Extensive") riskScore += 2;
-        if (data.VacancyRatePercentage > 5) riskScore += 2;
+        if (data.VacancyRatePercentage.HasValue && data.VacancyRatePercentage.Value > 5) riskScore += 2;
         if (data.LocationCategory != "Metro") riskScore += 1;
-        if (!data.AcceptedByMajorLenders) riskScore += 3;
+        if (data.AcceptedByMajorLenders == false) riskScore += 3;
 
         return riskScore switch
         {

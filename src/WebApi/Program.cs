@@ -43,10 +43,7 @@ builder.Services.AddHttpClient();
 
 // Register ChatGPT URL Discovery Service
 var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] ?? "";
-var azureEndpoint = builder.Configuration["OpenAI:AzureEndpoint"];
-var azureDeploymentName = builder.Configuration["OpenAI:AzureDeploymentName"];
-builder.Services.AddSingleton(new Propgic.Application.Services.PropertyDataFetchers.ChatGptUrlDiscoveryService(
-    openAIApiKey, azureEndpoint, azureDeploymentName));
+builder.Services.AddSingleton(new Propgic.Application.Services.PropertyDataFetchers.ChatGptUrlDiscoveryService(openAIApiKey));
 
 // Register Selenium Web Scraper Service (Singleton for better performance)
 builder.Services.AddSingleton<Propgic.Application.Services.PropertyDataFetchers.SeleniumWebScraperService>();
@@ -152,6 +149,74 @@ using (var scope = app.Services.CreateScope())
                     "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20260108000000_InitialCreate', '8.0.0')");
                 logger.LogInformation("Migration history updated.");
             }
+
+            // Check and create PropertyDataRecords table if needed
+            try
+            {
+                var propertyDataExists = context.PropertyDataRecords.Any();
+                logger.LogInformation($"PropertyDataRecords table exists and has {context.PropertyDataRecords.Count()} records");
+            }
+            catch (Exception)
+            {
+                logger.LogWarning("PropertyDataRecords table does NOT exist. Creating table...");
+
+                var createPropertyDataTableSql = @"
+                    CREATE TABLE IF NOT EXISTS ""PropertyDataRecords"" (
+                        ""Id"" uuid NOT NULL,
+                        ""PropertyAddress"" character varying(500) NOT NULL,
+                        ""PropertyUrl"" character varying(1000) NULL,
+                        ""PropertyType"" character varying(50) NULL,
+                        ""LandOwnership"" character varying(50) NULL,
+                        ""HasClearTitle"" boolean NULL,
+                        ""HasEncumbrances"" boolean NULL,
+                        ""Zoning"" character varying(50) NULL,
+                        ""LocationCategory"" character varying(50) NULL,
+                        ""DistanceToCbdKm"" integer NULL,
+                        ""SchoolZoneQuality"" character varying(50) NULL,
+                        ""DistanceToPublicTransportMeters"" integer NULL,
+                        ""RentalYieldPercentage"" numeric(18,2) NULL,
+                        ""CapitalGrowthPercentage"" numeric(18,2) NULL,
+                        ""VacancyRatePercentage"" numeric(18,2) NULL,
+                        ""LocalDemand"" character varying(50) NULL,
+                        ""HasStructuralIssues"" boolean NULL,
+                        ""PropertyAgeYears"" integer NULL,
+                        ""HasMajorDefects"" boolean NULL,
+                        ""MaintenanceLevel"" character varying(50) NULL,
+                        ""MeetsCurrentBuildingCodes"" boolean NULL,
+                        ""HasRequiredCertificates"" boolean NULL,
+                        ""HasLongTermTenants"" boolean NULL,
+                        ""HasReliablePaymentHistory"" boolean NULL,
+                        ""LeaseRemainingMonths"" integer NULL,
+                        ""HasConsistentRentalHistory"" boolean NULL,
+                        ""CashFlowCoverageRatio"" numeric(18,2) NULL,
+                        ""MeetsServiceabilityRequirements"" boolean NULL,
+                        ""LoanToValueRatio"" numeric(18,2) NULL,
+                        ""AnnualInsuranceCost"" numeric(18,2) NULL,
+                        ""SuitableForCrossCollateral"" boolean NULL,
+                        ""EquityAvailable"" numeric(18,2) NULL,
+                        ""EligibleForRefinance"" boolean NULL,
+                        ""HasStableSaleHistory"" boolean NULL,
+                        ""YearsSinceLastSale"" integer NULL,
+                        ""DaysOnMarket"" integer NULL,
+                        ""HasStrongComparables"" boolean NULL,
+                        ""IsUniqueProperty"" boolean NULL,
+                        ""AcceptedByMajorLenders"" boolean NULL,
+                        ""RiskRating"" character varying(50) NULL,
+                        ""HasDevelopmentRisk"" boolean NULL,
+                        ""FitsPortfolioDiversity"" boolean NULL,
+                        ""ViableForLongTermHold"" boolean NULL,
+                        ""DataSource"" character varying(100) NULL,
+                        ""CreatedAt"" timestamp with time zone NOT NULL,
+                        ""UpdatedAt"" timestamp with time zone NULL,
+                        CONSTRAINT ""PK_PropertyDataRecords"" PRIMARY KEY (""Id"")
+                    );
+
+                    CREATE INDEX IF NOT EXISTS ""IX_PropertyDataRecords_PropertyAddress"" ON ""PropertyDataRecords"" (""PropertyAddress"");
+                ";
+
+                context.Database.ExecuteSqlRaw(createPropertyDataTableSql);
+                logger.LogInformation("PropertyDataRecords table created successfully.");
+            }
         }
         else
         {
@@ -161,15 +226,18 @@ using (var scope = app.Services.CreateScope())
 
         logger.LogInformation("Database migration completed successfully.");
 
-        // Verify table exists now
+        // Verify tables exist now
         try
         {
             var count = context.PropertyAnalyses.Count();
             logger.LogInformation($"Verification: PropertyAnalyses table exists with {count} records");
+
+            var propertyDataCount = context.PropertyDataRecords.Count();
+            logger.LogInformation($"Verification: PropertyDataRecords table exists with {propertyDataCount} records");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Verification failed: PropertyAnalyses table still does not exist!");
+            logger.LogError(ex, "Verification failed: Tables do not exist!");
             throw;
         }
     }

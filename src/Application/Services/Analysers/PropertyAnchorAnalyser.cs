@@ -2,18 +2,26 @@ using Propgic.Application.Interfaces;
 using Propgic.Application.DTOs;
 using Propgic.Application.Services.PropertyDataFetchers;
 using Propgic.Domain.Entities;
+using Propgic.Domain.Interfaces;
 
 namespace Propgic.Application.Services.Analysers;
 
 public class PropertyAnchorAnalyser : IPropertyAnalyser
 {
     private readonly PropertyDataAggregator _dataAggregator;
+    private readonly IRepository<PropertyData> _propertyDataRepository;
+    private readonly IUnitOfWork _unitOfWork;
 
     public string AnalyserType => "PropertyAnchor";
 
-    public PropertyAnchorAnalyser(PropertyDataAggregator dataAggregator)
+    public PropertyAnchorAnalyser(
+        PropertyDataAggregator dataAggregator,
+        IRepository<PropertyData> propertyDataRepository,
+        IUnitOfWork unitOfWork)
     {
         _dataAggregator = dataAggregator;
+        _propertyDataRepository = propertyDataRepository;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<PropertyAnalysis> AnalyseAsync(PropertyAnalysis propertyAnalysis)
@@ -24,18 +32,30 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         try
         {
             // Fetch property data based on SourceType
-            PropertyDataDto propertyData;
+            PropertyDataDto propertyDataDto;
+            string dataSource;
             if (propertyAnalysis.SourceType == "Url")
             {
-                propertyData = await _dataAggregator.FetchFromUrlAsync(propertyAnalysis.PropertyAddress);
+                propertyDataDto = await _dataAggregator.FetchFromUrlAsync(propertyAnalysis.PropertyAddress);
+                dataSource = "URL";
             }
             else
             {
-                propertyData = await _dataAggregator.FetchAndAggregateAsync(propertyAnalysis.PropertyAddress);
+                propertyDataDto = await _dataAggregator.FetchAndAggregateAsync(propertyAnalysis.PropertyAddress);
+                dataSource = "OpenAI";
             }
 
+            // Save property data to database
+            var propertyDataEntity = MapToPropertyDataEntity(propertyDataDto, propertyAnalysis.PropertyAddress, dataSource);
+            if (propertyAnalysis.SourceType == "Url")
+            {
+                propertyDataEntity.PropertyUrl = propertyAnalysis.PropertyAddress;
+            }
+            await _propertyDataRepository.AddAsync(propertyDataEntity);
+            await _unitOfWork.SaveChangesAsync();
+
             // Perform analysis
-            var score = CalculateAnchorScore(propertyData);
+            var score = CalculateAnchorScore(propertyDataDto);
             var result = GenerateAnalysisResult(score);
 
             // Update the property analysis with results
@@ -63,120 +83,318 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         }
     }
 
+    private static PropertyData MapToPropertyDataEntity(PropertyDataDto dto, string propertyAddress, string dataSource)
+    {
+        return new PropertyData
+        {
+            Id = Guid.NewGuid(),
+            PropertyAddress = propertyAddress,
+            CreatedAt = DateTime.UtcNow,
+            DataSource = dataSource,
+            PropertyType = dto.PropertyType,
+            LandOwnership = dto.LandOwnership,
+            HasClearTitle = dto.HasClearTitle,
+            HasEncumbrances = dto.HasEncumbrances,
+            Zoning = dto.Zoning,
+            LocationCategory = dto.LocationCategory,
+            DistanceToCbdKm = dto.DistanceToCbdKm,
+            SchoolZoneQuality = dto.SchoolZoneQuality,
+            DistanceToPublicTransportMeters = dto.DistanceToPublicTransportMeters,
+            RentalYieldPercentage = dto.RentalYieldPercentage,
+            CapitalGrowthPercentage = dto.CapitalGrowthPercentage,
+            VacancyRatePercentage = dto.VacancyRatePercentage,
+            LocalDemand = dto.LocalDemand,
+            HasStructuralIssues = dto.HasStructuralIssues,
+            PropertyAgeYears = dto.PropertyAgeYears,
+            HasMajorDefects = dto.HasMajorDefects,
+            MaintenanceLevel = dto.MaintenanceLevel,
+            MeetsCurrentBuildingCodes = dto.MeetsCurrentBuildingCodes,
+            HasRequiredCertificates = dto.HasRequiredCertificates,
+            HasLongTermTenants = dto.HasLongTermTenants,
+            HasReliablePaymentHistory = dto.HasReliablePaymentHistory,
+            LeaseRemainingMonths = dto.LeaseRemainingMonths,
+            HasConsistentRentalHistory = dto.HasConsistentRentalHistory,
+            CashFlowCoverageRatio = dto.CashFlowCoverageRatio,
+            MeetsServiceabilityRequirements = dto.MeetsServiceabilityRequirements,
+            LoanToValueRatio = dto.LoanToValueRatio,
+            AnnualInsuranceCost = dto.AnnualInsuranceCost,
+            SuitableForCrossCollateral = dto.SuitableForCrossCollateral,
+            EquityAvailable = dto.EquityAvailable,
+            EligibleForRefinance = dto.EligibleForRefinance,
+            HasStableSaleHistory = dto.HasStableSaleHistory,
+            YearsSinceLastSale = dto.YearsSinceLastSale,
+            DaysOnMarket = dto.DaysOnMarket,
+            HasStrongComparables = dto.HasStrongComparables,
+            IsUniqueProperty = dto.IsUniqueProperty,
+            AcceptedByMajorLenders = dto.AcceptedByMajorLenders,
+            RiskRating = dto.RiskRating,
+            HasDevelopmentRisk = dto.HasDevelopmentRisk,
+            FitsPortfolioDiversity = dto.FitsPortfolioDiversity,
+            ViableForLongTermHold = dto.ViableForLongTermHold
+        };
+    }
+
     private decimal CalculateAnchorScore(PropertyDataDto propertyData)
     {
         decimal totalScore = 0m;
+        decimal totalWeight = 0m;
 
         // 1. Property type (6%)
-        totalScore += EvaluatePropertyType(propertyData.PropertyType) * 0.06m;
+        if (propertyData.PropertyType != null)
+        {
+            totalScore += EvaluatePropertyType(propertyData.PropertyType) * 0.06m;
+            totalWeight += 0.06m;
+        }
 
         // 2. Land ownership (5%)
-        totalScore += EvaluateLandOwnership(propertyData.LandOwnership) * 0.05m;
+        if (propertyData.LandOwnership != null)
+        {
+            totalScore += EvaluateLandOwnership(propertyData.LandOwnership) * 0.05m;
+            totalWeight += 0.05m;
+        }
 
         // 3. Title clarity (8%)
-        totalScore += EvaluateTitleClarity(propertyData.HasClearTitle, propertyData.HasEncumbrances) * 0.08m;
+        if (propertyData.HasClearTitle.HasValue && propertyData.HasEncumbrances.HasValue)
+        {
+            totalScore += EvaluateTitleClarity(propertyData.HasClearTitle.Value, propertyData.HasEncumbrances.Value) * 0.08m;
+            totalWeight += 0.08m;
+        }
 
         // 4. Zoning (4%)
-        totalScore += EvaluateZoning(propertyData.Zoning) * 0.04m;
+        if (propertyData.Zoning != null)
+        {
+            totalScore += EvaluateZoning(propertyData.Zoning) * 0.04m;
+            totalWeight += 0.04m;
+        }
 
         // 5. Location category (5%)
-        totalScore += EvaluateLocationCategory(propertyData.LocationCategory) * 0.05m;
+        if (propertyData.LocationCategory != null)
+        {
+            totalScore += EvaluateLocationCategory(propertyData.LocationCategory) * 0.05m;
+            totalWeight += 0.05m;
+        }
 
         // 6. Proximity to CBD (3%)
-        totalScore += EvaluateProximityToCbd(propertyData.DistanceToCbdKm) * 0.03m;
+        if (propertyData.DistanceToCbdKm.HasValue)
+        {
+            totalScore += EvaluateProximityToCbd(propertyData.DistanceToCbdKm.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 7. School zone quality (4%)
-        totalScore += EvaluateSchoolZone(propertyData.SchoolZoneQuality) * 0.04m;
+        if (propertyData.SchoolZoneQuality != null)
+        {
+            totalScore += EvaluateSchoolZone(propertyData.SchoolZoneQuality) * 0.04m;
+            totalWeight += 0.04m;
+        }
 
         // 8. Public transport (3%)
-        totalScore += EvaluatePublicTransport(propertyData.DistanceToPublicTransportMeters) * 0.03m;
+        if (propertyData.DistanceToPublicTransportMeters.HasValue)
+        {
+            totalScore += EvaluatePublicTransport(propertyData.DistanceToPublicTransportMeters.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 9. Rental yield (7%)
-        totalScore += EvaluateRentalYield(propertyData.RentalYieldPercentage) * 0.07m;
+        if (propertyData.RentalYieldPercentage.HasValue)
+        {
+            totalScore += EvaluateRentalYield(propertyData.RentalYieldPercentage.Value) * 0.07m;
+            totalWeight += 0.07m;
+        }
 
         // 10. Capital growth trend (6%)
-        totalScore += EvaluateCapitalGrowth(propertyData.CapitalGrowthPercentage) * 0.06m;
+        if (propertyData.CapitalGrowthPercentage.HasValue)
+        {
+            totalScore += EvaluateCapitalGrowth(propertyData.CapitalGrowthPercentage.Value) * 0.06m;
+            totalWeight += 0.06m;
+        }
 
         // 11. Vacancy rate (4%)
-        totalScore += EvaluateVacancyRate(propertyData.VacancyRatePercentage) * 0.04m;
+        if (propertyData.VacancyRatePercentage.HasValue)
+        {
+            totalScore += EvaluateVacancyRate(propertyData.VacancyRatePercentage.Value) * 0.04m;
+            totalWeight += 0.04m;
+        }
 
         // 12. Local area demand (5%)
-        totalScore += EvaluateLocalDemand(propertyData.LocalDemand) * 0.05m;
+        if (propertyData.LocalDemand != null)
+        {
+            totalScore += EvaluateLocalDemand(propertyData.LocalDemand) * 0.05m;
+            totalWeight += 0.05m;
+        }
 
         // 13. Structural soundness (6%)
-        totalScore += EvaluateStructuralSoundness(propertyData.HasStructuralIssues, propertyData.PropertyAgeYears) * 0.06m;
+        if (propertyData.HasStructuralIssues.HasValue && propertyData.PropertyAgeYears.HasValue)
+        {
+            totalScore += EvaluateStructuralSoundness(propertyData.HasStructuralIssues.Value, propertyData.PropertyAgeYears.Value) * 0.06m;
+            totalWeight += 0.06m;
+        }
 
         // 14. Major defects (5%)
-        totalScore += EvaluateMajorDefects(propertyData.HasMajorDefects) * 0.05m;
+        if (propertyData.HasMajorDefects.HasValue)
+        {
+            totalScore += EvaluateMajorDefects(propertyData.HasMajorDefects.Value) * 0.05m;
+            totalWeight += 0.05m;
+        }
 
         // 15. Maintenance required (3%)
-        totalScore += EvaluateMaintenance(propertyData.MaintenanceLevel) * 0.03m;
+        if (propertyData.MaintenanceLevel != null)
+        {
+            totalScore += EvaluateMaintenance(propertyData.MaintenanceLevel) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 16. Compliance (4%)
-        totalScore += EvaluateCompliance(propertyData.MeetsCurrentBuildingCodes, propertyData.HasRequiredCertificates) * 0.04m;
+        if (propertyData.MeetsCurrentBuildingCodes.HasValue && propertyData.HasRequiredCertificates.HasValue)
+        {
+            totalScore += EvaluateCompliance(propertyData.MeetsCurrentBuildingCodes.Value, propertyData.HasRequiredCertificates.Value) * 0.04m;
+            totalWeight += 0.04m;
+        }
 
         // 17. Tenant quality (3%)
-        totalScore += EvaluateTenantQuality(propertyData.HasLongTermTenants, propertyData.HasReliablePaymentHistory) * 0.03m;
+        if (propertyData.HasLongTermTenants.HasValue && propertyData.HasReliablePaymentHistory.HasValue)
+        {
+            totalScore += EvaluateTenantQuality(propertyData.HasLongTermTenants.Value, propertyData.HasReliablePaymentHistory.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 18. Lease status (3%)
-        totalScore += EvaluateLeaseStatus(propertyData.LeaseRemainingMonths) * 0.03m;
+        if (propertyData.LeaseRemainingMonths.HasValue)
+        {
+            totalScore += EvaluateLeaseStatus(propertyData.LeaseRemainingMonths.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 19. Rental consistency (2%)
-        totalScore += EvaluateRentalConsistency(propertyData.HasConsistentRentalHistory) * 0.02m;
+        if (propertyData.HasConsistentRentalHistory.HasValue)
+        {
+            totalScore += EvaluateRentalConsistency(propertyData.HasConsistentRentalHistory.Value) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 20. Cash flow coverage (5%)
-        totalScore += EvaluateCashFlowCoverage(propertyData.CashFlowCoverageRatio) * 0.05m;
+        if (propertyData.CashFlowCoverageRatio.HasValue)
+        {
+            totalScore += EvaluateCashFlowCoverage(propertyData.CashFlowCoverageRatio.Value) * 0.05m;
+            totalWeight += 0.05m;
+        }
 
         // 21. Loan serviceability (4%)
-        totalScore += EvaluateLoanServiceability(propertyData.MeetsServiceabilityRequirements) * 0.04m;
+        if (propertyData.MeetsServiceabilityRequirements.HasValue)
+        {
+            totalScore += EvaluateLoanServiceability(propertyData.MeetsServiceabilityRequirements.Value) * 0.04m;
+            totalWeight += 0.04m;
+        }
 
         // 22. Equity buffer (3%)
-        totalScore += EvaluateEquityBuffer(propertyData.LoanToValueRatio) * 0.03m;
+        if (propertyData.LoanToValueRatio.HasValue)
+        {
+            totalScore += EvaluateEquityBuffer(propertyData.LoanToValueRatio.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 23. Insurance costs (2%)
-        totalScore += EvaluateInsuranceCosts(propertyData.AnnualInsuranceCost) * 0.02m;
+        if (propertyData.AnnualInsuranceCost.HasValue)
+        {
+            totalScore += EvaluateInsuranceCosts(propertyData.AnnualInsuranceCost.Value) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 24. Cross-collateral suitability (4%)
-        totalScore += EvaluateCrossCollateralSuitability(propertyData.SuitableForCrossCollateral) * 0.04m;
+        if (propertyData.SuitableForCrossCollateral.HasValue)
+        {
+            totalScore += EvaluateCrossCollateralSuitability(propertyData.SuitableForCrossCollateral.Value) * 0.04m;
+            totalWeight += 0.04m;
+        }
 
         // 25. Borrowing capacity boost (3%)
-        totalScore += EvaluateBorrowingCapacity(propertyData.EquityAvailable) * 0.03m;
+        if (propertyData.EquityAvailable.HasValue)
+        {
+            totalScore += EvaluateBorrowingCapacity(propertyData.EquityAvailable.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 26. Refinance eligibility (2%)
-        totalScore += EvaluateRefinanceEligibility(propertyData.EligibleForRefinance) * 0.02m;
+        if (propertyData.EligibleForRefinance.HasValue)
+        {
+            totalScore += EvaluateRefinanceEligibility(propertyData.EligibleForRefinance.Value) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 27. Sale history (2%)
-        totalScore += EvaluateSaleHistory(propertyData.HasStableSaleHistory, propertyData.YearsSinceLastSale) * 0.02m;
+        if (propertyData.HasStableSaleHistory.HasValue && propertyData.YearsSinceLastSale.HasValue)
+        {
+            totalScore += EvaluateSaleHistory(propertyData.HasStableSaleHistory.Value, propertyData.YearsSinceLastSale.Value) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 28. Market activity (2%)
-        totalScore += EvaluateMarketActivity(propertyData.DaysOnMarket) * 0.02m;
+        if (propertyData.DaysOnMarket.HasValue)
+        {
+            totalScore += EvaluateMarketActivity(propertyData.DaysOnMarket.Value) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 29. Comparable sales (2%)
-        totalScore += EvaluateComparableSales(propertyData.HasStrongComparables) * 0.02m;
+        if (propertyData.HasStrongComparables.HasValue)
+        {
+            totalScore += EvaluateComparableSales(propertyData.HasStrongComparables.Value) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 30. Uniqueness/scarcity (1%)
-        totalScore += EvaluateUniqueness(propertyData.IsUniqueProperty) * 0.01m;
+        if (propertyData.IsUniqueProperty.HasValue)
+        {
+            totalScore += EvaluateUniqueness(propertyData.IsUniqueProperty.Value) * 0.01m;
+            totalWeight += 0.01m;
+        }
 
         // 31. Lender acceptance (3%)
-        totalScore += EvaluateLenderAcceptance(propertyData.AcceptedByMajorLenders) * 0.03m;
+        if (propertyData.AcceptedByMajorLenders.HasValue)
+        {
+            totalScore += EvaluateLenderAcceptance(propertyData.AcceptedByMajorLenders.Value) * 0.03m;
+            totalWeight += 0.03m;
+        }
 
         // 32. Risk rating (2%)
-        totalScore += EvaluateRiskRating(propertyData.RiskRating) * 0.02m;
+        if (propertyData.RiskRating != null)
+        {
+            totalScore += EvaluateRiskRating(propertyData.RiskRating) * 0.02m;
+            totalWeight += 0.02m;
+        }
 
         // 33. Future development risk (1%)
-        totalScore += EvaluateDevelopmentRisk(propertyData.HasDevelopmentRisk) * 0.01m;
+        if (propertyData.HasDevelopmentRisk.HasValue)
+        {
+            totalScore += EvaluateDevelopmentRisk(propertyData.HasDevelopmentRisk.Value) * 0.01m;
+            totalWeight += 0.01m;
+        }
 
         // 34. Portfolio diversity fit (1%)
-        totalScore += EvaluatePortfolioDiversity(propertyData.FitsPortfolioDiversity) * 0.01m;
+        if (propertyData.FitsPortfolioDiversity.HasValue)
+        {
+            totalScore += EvaluatePortfolioDiversity(propertyData.FitsPortfolioDiversity.Value) * 0.01m;
+            totalWeight += 0.01m;
+        }
 
         // 35. Long-term hold viability (1%)
-        totalScore += EvaluateLongTermViability(propertyData.ViableForLongTermHold) * 0.01m;
+        if (propertyData.ViableForLongTermHold.HasValue)
+        {
+            totalScore += EvaluateLongTermViability(propertyData.ViableForLongTermHold.Value) * 0.01m;
+            totalWeight += 0.01m;
+        }
 
-        return Math.Round(totalScore, 2);
+        // Normalize score based on available data
+        if (totalWeight > 0)
+        {
+            return Math.Round(totalScore / totalWeight * 100m, 2);
+        }
+
+        return 0m;
     }
 
     // Evaluation methods for each attribute (return score 0-100)
-    private decimal EvaluatePropertyType(string propertyType)
+    private static decimal EvaluatePropertyType(string propertyType)
     {
         return propertyType.ToLower() switch
         {
@@ -188,7 +406,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateLandOwnership(string landOwnership)
+    private static decimal EvaluateLandOwnership(string landOwnership)
     {
         return landOwnership.ToLower() switch
         {
@@ -199,7 +417,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateTitleClarity(bool hasClearTitle, bool hasEncumbrances)
+    private static decimal EvaluateTitleClarity(bool hasClearTitle, bool hasEncumbrances)
     {
         if (hasClearTitle && !hasEncumbrances) return 100m;
         if (hasClearTitle && hasEncumbrances) return 70m;
@@ -207,7 +425,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateZoning(string zoning)
+    private static decimal EvaluateZoning(string zoning)
     {
         return zoning.ToLower() switch
         {
@@ -219,7 +437,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateLocationCategory(string locationCategory)
+    private static decimal EvaluateLocationCategory(string locationCategory)
     {
         return locationCategory.ToLower() switch
         {
@@ -230,7 +448,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateProximityToCbd(int distanceKm)
+    private static decimal EvaluateProximityToCbd(int distanceKm)
     {
         if (distanceKm <= 10) return 100m;
         if (distanceKm <= 20) return 85m;
@@ -239,7 +457,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 40m;
     }
 
-    private decimal EvaluateSchoolZone(string quality)
+    private static decimal EvaluateSchoolZone(string quality)
     {
         return quality.ToLower() switch
         {
@@ -251,7 +469,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluatePublicTransport(int distanceMeters)
+    private static decimal EvaluatePublicTransport(int distanceMeters)
     {
         if (distanceMeters <= 500) return 100m;
         if (distanceMeters <= 1000) return 85m;
@@ -259,7 +477,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 50m;
     }
 
-    private decimal EvaluateRentalYield(decimal yieldPercentage)
+    private static decimal EvaluateRentalYield(decimal yieldPercentage)
     {
         if (yieldPercentage >= 5.0m) return 100m;
         if (yieldPercentage >= 4.0m) return 85m;
@@ -268,7 +486,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateCapitalGrowth(decimal growthPercentage)
+    private static decimal EvaluateCapitalGrowth(decimal growthPercentage)
     {
         if (growthPercentage >= 7.0m) return 100m;
         if (growthPercentage >= 5.0m) return 85m;
@@ -277,7 +495,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateVacancyRate(decimal vacancyPercentage)
+    private static decimal EvaluateVacancyRate(decimal vacancyPercentage)
     {
         if (vacancyPercentage <= 2.0m) return 100m;
         if (vacancyPercentage <= 3.0m) return 85m;
@@ -286,7 +504,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateLocalDemand(string demand)
+    private static decimal EvaluateLocalDemand(string demand)
     {
         return demand.ToLower() switch
         {
@@ -297,7 +515,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateStructuralSoundness(bool hasIssues, int ageYears)
+    private static decimal EvaluateStructuralSoundness(bool hasIssues, int ageYears)
     {
         if (hasIssues) return 30m;
         if (ageYears <= 10) return 100m;
@@ -306,12 +524,12 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 60m;
     }
 
-    private decimal EvaluateMajorDefects(bool hasDefects)
+    private static decimal EvaluateMajorDefects(bool hasDefects)
     {
         return hasDefects ? 0m : 100m;
     }
 
-    private decimal EvaluateMaintenance(string level)
+    private static decimal EvaluateMaintenance(string level)
     {
         return level.ToLower() switch
         {
@@ -322,21 +540,21 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateCompliance(bool meetsCodes, bool hasCertificates)
+    private static decimal EvaluateCompliance(bool meetsCodes, bool hasCertificates)
     {
         if (meetsCodes && hasCertificates) return 100m;
         if (meetsCodes || hasCertificates) return 60m;
         return 20m;
     }
 
-    private decimal EvaluateTenantQuality(bool longTerm, bool reliablePayment)
+    private static decimal EvaluateTenantQuality(bool longTerm, bool reliablePayment)
     {
         if (longTerm && reliablePayment) return 100m;
         if (longTerm || reliablePayment) return 70m;
         return 40m;
     }
 
-    private decimal EvaluateLeaseStatus(int remainingMonths)
+    private static decimal EvaluateLeaseStatus(int remainingMonths)
     {
         if (remainingMonths >= 12) return 100m;
         if (remainingMonths >= 6) return 75m;
@@ -344,12 +562,12 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateRentalConsistency(bool hasConsistency)
+    private static decimal EvaluateRentalConsistency(bool hasConsistency)
     {
         return hasConsistency ? 100m : 50m;
     }
 
-    private decimal EvaluateCashFlowCoverage(decimal ratio)
+    private static decimal EvaluateCashFlowCoverage(decimal ratio)
     {
         if (ratio >= 1.3m) return 100m;
         if (ratio >= 1.2m) return 85m;
@@ -358,12 +576,12 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateLoanServiceability(bool meetsRequirements)
+    private static decimal EvaluateLoanServiceability(bool meetsRequirements)
     {
         return meetsRequirements ? 100m : 30m;
     }
 
-    private decimal EvaluateEquityBuffer(decimal ltvRatio)
+    private static decimal EvaluateEquityBuffer(decimal ltvRatio)
     {
         if (ltvRatio <= 60m) return 100m;
         if (ltvRatio <= 70m) return 85m;
@@ -372,7 +590,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 30m;
     }
 
-    private decimal EvaluateInsuranceCosts(decimal annualCost)
+    private static decimal EvaluateInsuranceCosts(decimal annualCost)
     {
         if (annualCost <= 1500m) return 100m;
         if (annualCost <= 2500m) return 80m;
@@ -380,12 +598,12 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 40m;
     }
 
-    private decimal EvaluateCrossCollateralSuitability(bool suitable)
+    private static decimal EvaluateCrossCollateralSuitability(bool suitable)
     {
         return suitable ? 100m : 40m;
     }
 
-    private decimal EvaluateBorrowingCapacity(decimal equity)
+    private static decimal EvaluateBorrowingCapacity(decimal equity)
     {
         if (equity >= 200000m) return 100m;
         if (equity >= 150000m) return 85m;
@@ -394,12 +612,12 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 40m;
     }
 
-    private decimal EvaluateRefinanceEligibility(bool eligible)
+    private static decimal EvaluateRefinanceEligibility(bool eligible)
     {
         return eligible ? 100m : 50m;
     }
 
-    private decimal EvaluateSaleHistory(bool stable, int yearsSinceSale)
+    private static decimal EvaluateSaleHistory(bool stable, int yearsSinceSale)
     {
         if (stable && yearsSinceSale >= 2) return 100m;
         if (stable) return 80m;
@@ -407,7 +625,7 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 40m;
     }
 
-    private decimal EvaluateMarketActivity(int daysOnMarket)
+    private static decimal EvaluateMarketActivity(int daysOnMarket)
     {
         if (daysOnMarket <= 30) return 100m;
         if (daysOnMarket <= 60) return 80m;
@@ -415,23 +633,23 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         return 40m;
     }
 
-    private decimal EvaluateComparableSales(bool hasStrong)
+    private static decimal EvaluateComparableSales(bool hasStrong)
     {
         return hasStrong ? 100m : 50m;
     }
 
-    private decimal EvaluateUniqueness(bool isUnique)
+    private static decimal EvaluateUniqueness(bool isUnique)
     {
         // For anchor properties, standard is better than unique
         return isUnique ? 70m : 100m;
     }
 
-    private decimal EvaluateLenderAcceptance(bool accepted)
+    private static decimal EvaluateLenderAcceptance(bool accepted)
     {
         return accepted ? 100m : 30m;
     }
 
-    private decimal EvaluateRiskRating(string rating)
+    private static decimal EvaluateRiskRating(string rating)
     {
         return rating.ToLower() switch
         {
@@ -442,17 +660,17 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         };
     }
 
-    private decimal EvaluateDevelopmentRisk(bool hasRisk)
+    private static decimal EvaluateDevelopmentRisk(bool hasRisk)
     {
         return hasRisk ? 30m : 100m;
     }
 
-    private decimal EvaluatePortfolioDiversity(bool fits)
+    private static decimal EvaluatePortfolioDiversity(bool fits)
     {
         return fits ? 100m : 50m;
     }
 
-    private decimal EvaluateLongTermViability(bool viable)
+    private static decimal EvaluateLongTermViability(bool viable)
     {
         return viable ? 100m : 40m;
     }
