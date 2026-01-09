@@ -99,7 +99,9 @@ Please provide detailed property analysis data based on your knowledge of:
 - Distance to CBD, schools, and transport
 - Local market conditions and demand
 
-Return a JSON object with the following fields. Use your best estimates based on the location and typical properties in that area:
+IMPORTANT: Return null for any attribute you are not confident about. Only provide values when you have reasonable certainty based on the location and typical market data. It's better to return null than to guess incorrectly.
+
+Return a JSON object with the following fields:
 
 {{
     ""propertyType"": ""House|Unit|Townhouse|Villa|Duplex|Land"",
