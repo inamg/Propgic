@@ -7,47 +7,32 @@ namespace Propgic.Application.Services.PropertyDataFetchers;
 public class PropertyComAuFetcher : IPropertyDataFetcher
 {
     private readonly ChatGptUrlDiscoveryService _chatGptService;
-    private readonly SeleniumWebScraperService _seleniumService;
-    private const string BaseUrl = "https://www.property.com.au";
 
     public int Priority => 3;
     public string SourceName => "Property.com.au";
 
-    public PropertyComAuFetcher(ChatGptUrlDiscoveryService chatGptService, SeleniumWebScraperService seleniumService)
+    public PropertyComAuFetcher(ChatGptUrlDiscoveryService chatGptService)
     {
         _chatGptService = chatGptService;
-        _seleniumService = seleniumService;
     }
 
     public async Task<PropertyDataDto?> FetchPropertyDataAsync(string propertyAddress)
     {
         try
         {
-            // Step 1: Use ChatGPT to get the suggested URL
-            var propertyUrl = await _chatGptService.GetPropertyUrlAsync(propertyAddress, "property.com.au");
+            Console.WriteLine($"Fetching property data for: {propertyAddress} via OpenAI");
 
-            string? pageContent = null;
+            // Ask OpenAI directly for property data based on the address
+            var propertyData = await _chatGptService.GetPropertyDataAsync(propertyAddress);
 
-            if (!string.IsNullOrEmpty(propertyUrl))
+            if (propertyData != null)
             {
-                // Step 2: Use Selenium to fetch the page content from ChatGPT URL
-                pageContent = await _seleniumService.GetPageContentAsync(propertyUrl);
+                Console.WriteLine($"OpenAI successfully provided property data for: {propertyAddress}");
+                return propertyData;
             }
 
-            // Fallback: If ChatGPT URL failed, use Selenium to search directly
-            if (string.IsNullOrEmpty(pageContent))
-            {
-                var searchUrl = $"{BaseUrl}/for-sale/";
-                pageContent = await _seleniumService.SearchAndGetContentAsync(searchUrl, propertyAddress, "/property/");
-            }
-
-            if (string.IsNullOrEmpty(pageContent))
-            {
-                Console.WriteLine($"Could not fetch property data for {propertyAddress} from Property.com.au");
-                return null;
-            }
-
-            return ParsePropertyData(pageContent, propertyAddress);
+            Console.WriteLine($"OpenAI could not provide property data for: {propertyAddress}");
+            return null;
         }
         catch (Exception ex)
         {
@@ -62,20 +47,47 @@ public class PropertyComAuFetcher : IPropertyDataFetcher
         {
             Console.WriteLine($"Fetching property data directly from URL: {propertyUrl}");
 
-            // Use Selenium to fetch the page content from the provided URL
-            var pageContent = await _seleniumService.GetPageContentAsync(propertyUrl);
-
-            if (string.IsNullOrEmpty(pageContent))
+            // Extract address from URL and use ChatGPT to get property data
+            var address = ExtractAddressFromUrl(propertyUrl);
+            if (!string.IsNullOrEmpty(address))
             {
-                Console.WriteLine($"Could not fetch property data from URL: {propertyUrl}");
-                return null;
+                var propertyData = await _chatGptService.GetPropertyDataAsync(address);
+                if (propertyData != null)
+                {
+                    Console.WriteLine($"OpenAI successfully provided property data for URL: {propertyUrl}");
+                    return propertyData;
+                }
             }
 
-            return ParsePropertyData(pageContent, propertyUrl);
+            Console.WriteLine($"Could not fetch property data from URL: {propertyUrl}");
+            return null;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error fetching from URL {propertyUrl}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string? ExtractAddressFromUrl(string url)
+    {
+        try
+        {
+            var uri = new Uri(url);
+            var path = uri.AbsolutePath.Trim('/');
+
+            // Property.com.au URLs typically look like: /property/123-example-street-suburb-state-1234567
+            if (path.StartsWith("property/", StringComparison.OrdinalIgnoreCase))
+                path = path["property/".Length..];
+
+            var parts = path.Split('-');
+            if (parts.Length < 3) return null;
+
+            var address = string.Join(" ", parts).Replace("  ", " ");
+            return address;
+        }
+        catch
+        {
             return null;
         }
     }

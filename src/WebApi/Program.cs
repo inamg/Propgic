@@ -45,9 +45,6 @@ builder.Services.AddHttpClient();
 var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] ?? "";
 builder.Services.AddSingleton(new Propgic.Application.Services.PropertyDataFetchers.ChatGptUrlDiscoveryService(openAIApiKey));
 
-// Register Selenium Web Scraper Service (Singleton for better performance)
-builder.Services.AddSingleton<Propgic.Application.Services.PropertyDataFetchers.SeleniumWebScraperService>();
-
 // Register Property Data Fetchers
 builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.IPropertyDataFetcher, Propgic.Application.Services.PropertyDataFetchers.DomainComAuFetcher>();
 builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.IPropertyDataFetcher, Propgic.Application.Services.PropertyDataFetchers.RealEstateComAuFetcher>();
@@ -262,8 +259,15 @@ app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
 
+// Serve static files from wwwroot
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Fallback to index.html for SPA routing
+app.MapFallbackToFile("index.html");
 
 app.Run();

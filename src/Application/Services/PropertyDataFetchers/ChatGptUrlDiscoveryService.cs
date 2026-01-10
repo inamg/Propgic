@@ -68,6 +68,8 @@ IMPORTANT: Return null for any attribute you are not confident about. Only provi
 Return a JSON object with the following fields:
 
 {{
+    ""imageUrl"": ""A real, publicly accessible image URL of this specific property or a representative property image from the suburb. Use images from domain.com.au, realestate.com.au, or similar Australian property sites if possible. Return null if no suitable image can be found."",
+    ""suburb"": ""The suburb name extracted from the address"",
     ""propertyType"": ""House|Unit|Townhouse|Villa|Duplex|Land"",
     ""landOwnership"": ""Freehold|Strata|Leasehold"",
     ""hasClearTitle"": true,
@@ -165,6 +167,8 @@ Return ONLY the JSON object, no additional text or explanation.";
     {
         return new PropertyDataDto
         {
+            ImageUrl = data.ImageUrl,
+            Suburb = data.Suburb,
             PropertyType = data.PropertyType,
             LandOwnership = data.LandOwnership,
             HasClearTitle = data.HasClearTitle,
@@ -210,6 +214,8 @@ Return ONLY the JSON object, no additional text or explanation.";
 
     private class ExtractedPropertyData
     {
+        public string? ImageUrl { get; set; }
+        public string? Suburb { get; set; }
         public string? PropertyType { get; set; }
         public string? LandOwnership { get; set; }
         public bool? HasClearTitle { get; set; }

@@ -2,6 +2,10 @@ namespace Propgic.Application.DTOs;
 
 public class PropertyDataDto
 {
+    // Display properties
+    public string? ImageUrl { get; set; } // Property image URL
+    public string? Suburb { get; set; } // Suburb name for display
+
     // 1. Property type (6%)
     public string? PropertyType { get; set; } // House, Unit, Townhouse, etc.
 

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Propgic - Property Analysis Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <!-- Google Maps Places API - loaded async -->
+    <script>
+        // Google Maps API key will be loaded from config
+        window.GOOGLE_MAPS_API_KEY = '';
+
+        // Load Google Maps API dynamically after getting the key
+        async function loadGoogleMapsApi() {
+            try {
+                const response = await fetch('/api/config/google-maps-key');
+                if (response.ok) {
+                    const data = await response.json();
+                    window.GOOGLE_MAPS_API_KEY = data.apiKey || '';
+
+                    if (window.GOOGLE_MAPS_API_KEY) {
+                        const script = document.createElement('script');
+                        script.src = `https://maps.googleapis.com/maps/api/js?key=${window.GOOGLE_MAPS_API_KEY}&libraries=places&callback=initGooglePlaces`;
+                        script.async = true;
+                        script.defer = true;
+                        document.head.appendChild(script);
+                    }
+                }
+            } catch (error) {
+                console.log('Google Maps API key not configured, autocomplete disabled');
+            }
+        }
+
+        // Initialize Google Places Autocomplete
+        function initGooglePlaces() {
+            const input = document.getElementById('propertyInput');
+            if (!input || !window.google) return;
+
+            const autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                componentRestrictions: { country: 'au' },
+                fields: ['formatted_address', 'geometry', 'address_components']
+            });
+
+            // Handle place selection
+            autocomplete.addListener('place_changed', function() {
+                const place = autocomplete.getPlace();
+                if (place.formatted_address) {
+                    input.value = place.formatted_address;
+                    // Store the selected place data for potential use
+                    window.selectedPlace = place;
+                }
+            });
+
+            // Prevent form submission on Enter when selecting from dropdown
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    const pacContainer = document.querySelector('.pac-container');
+                    if (pacContainer && pacContainer.style.display !== 'none') {
+                        e.preventDefault();
+                    }
+                }
+            });
+
+            // Fix z-index after dropdown is created
+            const observer = new MutationObserver(function() {
+                const pacContainers = document.querySelectorAll('.pac-container');
+                pacContainers.forEach(container => {
+                    container.style.zIndex = '10000';
+                });
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+
+        // Load the API when DOM is ready
+        document.addEventListener('DOMContentLoaded', loadGoogleMapsApi);
+    </script>
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#195366",
+                        "background-light": "#f7f7f8",
+                        "background-dark": "#22262a",
+                        "success": "#2DA52D",
+                        "danger": "#CC4C5E",
+                    },
+                    fontFamily: {
+                        "display": ["Manrope", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+    <style>
+        body { font-family: 'Manrope', sans-serif; }
+        .checkbox-tick {
+            --checkbox-tick-svg: url('data:image/svg+xml,%3csvg viewBox=%270 0 16 16%27 fill=%27white%27 xmlns=%27http://www.w3.org/2000/svg%27%3e%3cpath d=%27M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z%27/%3e%3c/svg%3e');
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #195366;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Google Places Autocomplete Styling */
+        .pac-container {
+            font-family: 'Manrope', sans-serif;
+            border-radius: 0.5rem;
+            border: 1px solid #e9eff1;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-top: 4px;
+            z-index: 10000 !important;
+            background-color: white;
+            position: absolute !important;
+        }
+        .pac-item {
+            padding: 12px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 1px solid #f3f4f6;
+            line-height: 1.4;
+            display: flex;
+            align-items: center;
+        }
+        .pac-item:hover {
+            background-color: #f7f7f8;
+        }
+        .pac-item-selected,
+        .pac-item:active {
+            background-color: #e9eff1;
+        }
+        .pac-icon {
+            margin-right: 10px;
+        }
+        .pac-icon-marker {
+            background-position: -1px -161px;
+        }
+        .pac-item-query {
+            font-weight: 600;
+            color: #195366;
+            font-size: 14px;
+        }
+        .pac-matched {
+            font-weight: 700;
+        }
+        .pac-item span {
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-[#101719] dark:text-[#f9fbfb] min-h-screen">
+    <!-- Top Navigation Bar -->
+    <header class="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#e9eff1] dark:border-[#3a3f44] px-4 md:px-10 py-3">
+        <div class="max-w-[1200px] mx-auto flex items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="text-primary size-8 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-3xl">domain</span>
+                </div>
+                <h2 class="hidden md:block text-lg font-extrabold tracking-tight">Propgic Property Analysis</h2>
+            </div>
+            <div class="flex-1 max-w-2xl flex items-center gap-2">
+                <div class="relative w-full">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-primary/60">
+                        <span class="material-symbols-outlined text-[20px]">search</span>
+                    </div>
+                    <input id="propertyInput" class="block w-full pl-10 pr-3 py-2 border-none bg-[#e9eff1] dark:bg-primary/10 rounded-lg focus:ring-2 focus:ring-primary text-sm" placeholder="Enter property address or listing URL..." type="text"/>
+                </div>
+                <button id="analyzeBtn" class="bg-primary hover:bg-primary/90 text-white px-5 py-2 rounded-lg text-sm font-bold transition-all shadow-sm flex items-center gap-2">
+                    <span id="analyzeBtnText">Analyze</span>
+                    <div id="analyzeBtnSpinner" class="loading-spinner hidden"></div>
+                </button>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="loadAnalyses()" class="text-primary dark:text-[#f9fbfb] hover:bg-primary/10 p-2 rounded-lg transition-all" title="Refresh">
+                    <span class="material-symbols-outlined">refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1200px] mx-auto p-4 md:p-8 space-y-8">
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden text-center py-12">
+            <div class="loading-spinner mx-auto mb-4" style="width: 48px; height: 48px;"></div>
+            <p class="text-gray-500">Analyzing property...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="flex flex-col items-center justify-center py-16">
+            <div class="bg-white dark:bg-background-dark rounded-2xl shadow-lg border border-[#e9eff1] dark:border-[#3a3f44] p-10 max-w-lg text-center">
+                <div class="size-20 mx-auto mb-6 bg-primary/10 rounded-full flex items-center justify-center">
+                    <span class="material-symbols-outlined text-5xl text-primary">home_work</span>
+                </div>
+                <h3 class="text-2xl font-extrabold text-gray-700 dark:text-gray-200 mb-3">No Property Analysis Yet</h3>
+                <p class="text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
+                    Start analyzing Australian investment properties by entering an address or property listing URL in the search bar above.
+                </p>
+                <div class="flex flex-col gap-3 text-left bg-background-light dark:bg-background-dark/50 rounded-xl p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Try searching for:</p>
+                    <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                        <span class="material-symbols-outlined text-primary text-lg">location_on</span>
+                        <span>123 Example Street, Sydney NSW 2000</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                        <span class="material-symbols-outlined text-primary text-lg">link</span>
+                        <span>domain.com.au or realestate.com.au listing URL</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Container -->
+        <div id="resultsContainer" class="hidden space-y-8">
+            <!-- Summary Card Section -->
+            <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 flex flex-col items-stretch justify-start rounded-xl shadow-sm border border-[#e9eff1] dark:border-[#3a3f44] bg-white dark:bg-background-dark overflow-hidden group">
+                    <div class="flex flex-col md:flex-row h-full">
+                        <div id="propertyImageContainer" class="w-full md:w-1/2 bg-center bg-no-repeat aspect-video md:aspect-auto bg-cover bg-primary/10 flex items-center justify-center relative overflow-hidden">
+                            <img id="propertyImage" class="hidden absolute inset-0 w-full h-full object-cover" alt="Property" onerror="this.classList.add('hidden'); document.getElementById('propertyImagePlaceholder').classList.remove('hidden');" />
+                            <span id="propertyImagePlaceholder" class="material-symbols-outlined text-8xl text-primary/30">home</span>
+                        </div>
+                        <div class="flex flex-1 flex-col justify-between p-6">
+                            <div>
+                                <p class="text-primary dark:text-primary/80 text-xs font-bold uppercase tracking-widest mb-2">Executive Summary</p>
+                                <div class="flex items-center gap-3 mb-4">
+                                    <h1 id="recommendationText" class="text-success text-3xl font-black leading-tight">Analyzing...</h1>
+                                    <span id="confidenceScore" class="bg-success/10 text-success text-xs font-bold px-2 py-1 rounded">--/100</span>
+                                </div>
+                                <p id="summaryText" class="text-gray-600 dark:text-gray-400 text-sm leading-relaxed mb-4">
+                                    Property analysis in progress...
+                                </p>
+                                <p id="propertyAddressDisplay" class="text-sm font-medium text-primary"></p>
+                            </div>
+                            <div class="flex items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+                                <button onclick="exportReport()" class="flex-1 bg-primary text-white text-xs font-bold py-3 rounded-lg hover:brightness-110 transition-all flex items-center justify-center gap-2">
+                                    <span class="material-symbols-outlined text-sm">download</span> Download Report
+                                </button>
+                                <button onclick="shareAnalysis()" class="px-3 py-3 rounded-lg border border-primary text-primary hover:bg-primary/5 transition-all">
+                                    <span class="material-symbols-outlined text-sm">share</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Quick Metrics -->
+                <div class="bg-primary text-white rounded-xl p-6 flex flex-col justify-between shadow-xl">
+                    <div>
+                        <h3 class="text-white/70 text-sm font-medium mb-1">Analysis Score</h3>
+                        <p id="analysisScoreDisplay" class="text-3xl font-black">--</p>
+                        <div id="scoreChangeDisplay" class="flex items-center gap-1 text-success font-bold text-sm mt-1">
+                            <span class="material-symbols-outlined text-sm">analytics</span> Anchor Analysis
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 mt-6 border-t border-white/10 pt-6">
+                        <div>
+                            <p class="text-white/60 text-xs uppercase mb-1">Rental Yield</p>
+                            <p id="rentalYieldDisplay" class="text-lg font-bold">--%</p>
+                        </div>
+                        <div>
+                            <p class="text-white/60 text-xs uppercase mb-1">Capital Growth</p>
+                            <p id="capitalGrowthDisplay" class="text-lg font-bold">--%</p>
+                        </div>
+                        <div>
+                            <p class="text-white/60 text-xs uppercase mb-1">Risk Rating</p>
+                            <p id="riskRatingDisplay" class="text-lg font-bold">--</p>
+                        </div>
+                        <div>
+                            <p class="text-white/60 text-xs uppercase mb-1">Location</p>
+                            <p id="locationDisplay" class="text-lg font-bold">--</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- The Why Section -->
+            <section class="space-y-4">
+                <h2 class="text-[#101719] dark:text-[#f9fbfb] text-xl font-black flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">analytics</span> Analysis Breakdown
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Pros -->
+                    <div class="bg-white dark:bg-background-dark p-6 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44]">
+                        <h3 class="text-success font-bold mb-4 flex items-center gap-2">
+                            <span class="material-symbols-outlined">check_circle</span> Investment Strengths
+                        </h3>
+                        <div id="strengthsList" class="space-y-1">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                    <!-- Cons -->
+                    <div class="bg-white dark:bg-background-dark p-6 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44]">
+                        <h3 class="text-danger font-bold mb-4 flex items-center gap-2">
+                            <span class="material-symbols-outlined">warning</span> Potential Risks
+                        </h3>
+                        <div id="risksList" class="space-y-1">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Data Grid Modules -->
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Module: Property Type -->
+                <div class="bg-white dark:bg-background-dark p-5 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44] flex flex-col">
+                    <div class="flex items-center justify-between mb-4">
+                        <span class="text-gray-500 text-xs font-bold uppercase">Property Type</span>
+                        <span class="material-symbols-outlined text-primary text-xl">home</span>
+                    </div>
+                    <div class="flex items-end gap-2 mb-4">
+                        <span id="propertyTypeDisplay" class="text-2xl font-black">--</span>
+                    </div>
+                    <p id="landOwnershipDisplay" class="text-xs text-gray-500">--</p>
+                </div>
+                <!-- Module: Vacancy Rate -->
+                <div class="bg-white dark:bg-background-dark p-5 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44]">
+                    <div class="flex items-center justify-between mb-4">
+                        <span class="text-gray-500 text-xs font-bold uppercase">Vacancy Rate</span>
+                        <span class="material-symbols-outlined text-primary text-xl">apartment</span>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <span id="vacancyRateDisplay" class="text-2xl font-black">--%</span>
+                        <span id="localDemandDisplay" class="text-xs font-bold text-success flex items-center gap-1">
+                            -- Demand
+                        </span>
+                    </div>
+                </div>
+                <!-- Module: Property Age -->
+                <div class="bg-white dark:bg-background-dark p-5 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44]">
+                    <div class="flex items-center justify-between mb-4">
+                        <span class="text-gray-500 text-xs font-bold uppercase">Property Age</span>
+                        <span class="material-symbols-outlined text-primary text-xl">schedule</span>
+                    </div>
+                    <div class="text-center py-2">
+                        <span id="propertyAgeDisplay" class="text-2xl font-black">-- years</span>
+                    </div>
+                    <p id="maintenanceLevelDisplay" class="text-xs text-gray-500 text-center">Maintenance: --</p>
+                </div>
+                <!-- Module: School Zone -->
+                <div class="bg-white dark:bg-background-dark p-5 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44]">
+                    <div class="flex items-center justify-between mb-4">
+                        <span class="text-gray-500 text-xs font-bold uppercase">School Zone</span>
+                        <span class="material-symbols-outlined text-primary text-xl">school</span>
+                    </div>
+                    <div class="text-center py-2">
+                        <span id="schoolZoneDisplay" class="text-2xl font-black">--</span>
+                    </div>
+                    <p id="distanceToCbdDisplay" class="text-xs text-gray-500 text-center">-- km to CBD</p>
+                </div>
+            </section>
+
+            <!-- Detailed Analysis Results -->
+            <section class="bg-white dark:bg-background-dark rounded-xl border border-[#e9eff1] dark:border-[#3a3f44] overflow-hidden">
+                <div class="px-6 py-4 border-b border-[#e9eff1] dark:border-[#3a3f44] flex items-center justify-between">
+                    <h3 class="font-black text-lg">Full Analysis Details</h3>
+                    <span id="analysisStatus" class="text-xs text-primary font-bold px-2 py-1 rounded bg-primary/10">--</span>
+                </div>
+                <div class="p-6">
+                    <div id="analysisResultText" class="prose prose-sm max-w-none text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+                        Analysis results will appear here...
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recent Analyses -->
+            <section class="bg-white dark:bg-background-dark p-6 rounded-xl border border-[#e9eff1] dark:border-[#3a3f44]">
+                <h4 class="font-bold mb-4 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">history</span> Recent Analyses
+                </h4>
+                <div id="recentAnalysesList" class="space-y-3">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="mt-12 py-10 border-t border-[#e9eff1] dark:border-[#3a3f44] text-center">
+        <p class="text-gray-400 text-xs">Propgic Property Analysis Platform - Australian Property Investment Analysis</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

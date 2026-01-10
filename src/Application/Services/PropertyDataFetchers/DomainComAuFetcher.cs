@@ -6,15 +6,13 @@ namespace Propgic.Application.Services.PropertyDataFetchers;
 public class DomainComAuFetcher : IPropertyDataFetcher
 {
     private readonly ChatGptUrlDiscoveryService _chatGptService;
-    private readonly SeleniumWebScraperService _seleniumService;
 
     public int Priority => 1;
     public string SourceName => "Domain.com.au";
 
-    public DomainComAuFetcher(ChatGptUrlDiscoveryService chatGptService, SeleniumWebScraperService seleniumService)
+    public DomainComAuFetcher(ChatGptUrlDiscoveryService chatGptService)
     {
         _chatGptService = chatGptService;
-        _seleniumService = seleniumService;
     }
 
     public async Task<PropertyDataDto?> FetchPropertyDataAsync(string propertyAddress)
@@ -48,20 +46,50 @@ public class DomainComAuFetcher : IPropertyDataFetcher
         {
             Console.WriteLine($"Fetching property data directly from URL: {propertyUrl}");
 
-            // Use Selenium to fetch the page content from the provided URL
-            var pageContent = await _seleniumService.GetPageContentAsync(propertyUrl);
-
-            if (string.IsNullOrEmpty(pageContent))
+            // Extract address from URL and use ChatGPT to get property data
+            var address = ExtractAddressFromUrl(propertyUrl);
+            if (!string.IsNullOrEmpty(address))
             {
-                Console.WriteLine($"Could not fetch property data from URL: {propertyUrl}");
-                return null;
+                var propertyData = await _chatGptService.GetPropertyDataAsync(address);
+                if (propertyData != null)
+                {
+                    Console.WriteLine($"OpenAI successfully provided property data for URL: {propertyUrl}");
+                    return propertyData;
+                }
             }
 
-            return ParsePropertyData(pageContent, propertyUrl);
+            Console.WriteLine($"Could not fetch property data from URL: {propertyUrl}");
+            return null;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error fetching from URL {propertyUrl}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string? ExtractAddressFromUrl(string url)
+    {
+        try
+        {
+            // Domain.com.au URLs typically look like: https://www.domain.com.au/123-example-street-suburb-state-1234567
+            var uri = new Uri(url);
+            var path = uri.AbsolutePath.Trim('/');
+
+            // Remove common prefixes
+            if (path.StartsWith("property-profile/", StringComparison.OrdinalIgnoreCase))
+                path = path.Substring("property-profile/".Length);
+
+            // Convert URL slug to address format
+            var parts = path.Split('-');
+            if (parts.Length < 3) return null;
+
+            // Try to reconstruct address from URL slug
+            var address = string.Join(" ", parts).Replace("  ", " ");
+            return address;
+        }
+        catch
+        {
             return null;
         }
     }

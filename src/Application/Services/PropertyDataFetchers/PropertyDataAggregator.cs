@@ -5,12 +5,10 @@ namespace Propgic.Application.Services.PropertyDataFetchers;
 public class PropertyDataAggregator
 {
     private readonly IEnumerable<IPropertyDataFetcher> _fetchers;
-    private readonly SeleniumWebScraperService _seleniumService;
 
-    public PropertyDataAggregator(IEnumerable<IPropertyDataFetcher> fetchers, SeleniumWebScraperService seleniumService)
+    public PropertyDataAggregator(IEnumerable<IPropertyDataFetcher> fetchers)
     {
         _fetchers = fetchers.OrderBy(f => f.Priority);
-        _seleniumService = seleniumService;
     }
 
     public async Task<PropertyDataDto> FetchAndAggregateAsync(string propertyAddress)

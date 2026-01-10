@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Propgic.Application.Interfaces;
 using Propgic.Application.DTOs;
 using Propgic.Application.Services.PropertyDataFetchers;
@@ -56,21 +57,29 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
 
             // Perform analysis
             var score = CalculateAnchorScore(propertyDataDto);
-            var result = GenerateAnalysisResult(score);
+            var resultSummary = GenerateAnalysisResult(score);
+
+            // Serialize property data to JSON for frontend display
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = false
+            };
+            var propertyDataJson = JsonSerializer.Serialize(propertyDataDto, jsonOptions);
 
             // Update the property analysis with results
             propertyAnalysis.AnalysisScore = score;
-            propertyAnalysis.AnalysisResult = result;
+            propertyAnalysis.AnalysisResult = propertyDataJson;
             propertyAnalysis.Status = "Completed";
             propertyAnalysis.CompletedAt = DateTime.UtcNow;
 
             if (propertyAnalysis.SourceType == "Url")
             {
-                propertyAnalysis.Remarks = "Analysis completed successfully using PropertyAnchor analyzer with 35 weighted attributes from direct URL";
+                propertyAnalysis.Remarks = $"{resultSummary} - Analysis completed using PropertyAnchor analyzer with 35 weighted attributes from direct URL";
             }
             else
             {
-                propertyAnalysis.Remarks = "Analysis completed successfully using PropertyAnchor analyzer with 35 weighted attributes from web sources";
+                propertyAnalysis.Remarks = $"{resultSummary} - Analysis completed using PropertyAnchor analyzer with 35 weighted attributes from web sources";
             }
 
             return propertyAnalysis;
@@ -385,9 +394,10 @@ public class PropertyAnchorAnalyser : IPropertyAnalyser
         }
 
         // Normalize score based on available data
+        // Each evaluation method returns 0-100, so we just need to normalize by weight
         if (totalWeight > 0)
         {
-            return Math.Round(totalScore / totalWeight * 100m, 2);
+            return Math.Round(totalScore / totalWeight, 2);
         }
 
         return 0m;
