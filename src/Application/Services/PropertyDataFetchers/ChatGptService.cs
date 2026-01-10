@@ -4,47 +4,13 @@ using Propgic.Application.DTOs;
 
 namespace Propgic.Application.Services.PropertyDataFetchers;
 
-public class ChatGptUrlDiscoveryService
+public class ChatGptService
 {
     private readonly OpenAI.OpenAIClient _openAIClient;
 
-    public ChatGptUrlDiscoveryService(string apiKey)
+    public ChatGptService(string apiKey)
     {
         _openAIClient = new OpenAI.OpenAIClient(apiKey);
-    }
-
-    public async Task<string?> GetPropertyUrlAsync(string propertyAddress, string websiteName)
-    {
-        try
-        {
-            var prompt = $@"Given the property address: '{propertyAddress}'
-
-Please construct or suggest the most likely property listing URL on {websiteName}.
-
-Return ONLY the URL, nothing else. If you cannot determine a specific URL, return an empty string.";
-
-            var chatClient = _openAIClient.GetChatClient("gpt-5.2");
-            var result = await chatClient.CompleteChatAsync(
-            [
-                new SystemChatMessage("You are a helpful assistant that constructs property listing URLs for Australian real estate websites."),
-                new UserChatMessage(prompt)
-            ]);
-
-            var url = result.Value.Content[0].Text?.Trim();
-
-            // Validate that it's a proper URL
-            if (!string.IsNullOrEmpty(url) && Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            {
-                return url;
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error getting URL from ChatGPT: {ex.Message}");
-            return null;
-        }
     }
 
     public async Task<PropertyDataDto?> GetPropertyDataAsync(string propertyAddress)
@@ -53,7 +19,7 @@ Return ONLY the URL, nothing else. If you cannot determine a specific URL, retur
         {
             Console.WriteLine($"Asking OpenAI for property data: {propertyAddress}");
 
-            var prompt = $@"You are an expert Australian property analyst with access to current property market data.
+            var prompt = $@"You are an expert Australian property analyst with access to current property market data.conservative Australian property analyst lens.
 
 For the property at: {propertyAddress}
 
@@ -119,12 +85,15 @@ Return a JSON object with the following fields:
 
 Return ONLY the JSON object, no additional text or explanation.";
 
-            var chatClient = _openAIClient.GetChatClient("gpt-4o-mini");
+            var chatClient = _openAIClient.GetChatClient("gpt-5.2");
+            var chatOptions = new ChatCompletionOptions
+            {
+                Temperature = 0f
+            };
             var result = await chatClient.CompleteChatAsync(
             [
-                new SystemChatMessage("You are an expert Australian property analyst with comprehensive knowledge of property markets across Australia. Provide accurate property analysis data based on location, suburb characteristics, and current market conditions. Always return valid JSON."),
                 new UserChatMessage(prompt)
-            ]);
+            ], chatOptions);
 
             var jsonResponse = result.Value.Content[0].Text?.Trim();
 

@@ -82,21 +82,6 @@ public class PropertyAnalyserController : ControllerBase
         }
     }
 
-    [HttpPost("by-url")]
-    public async Task<ActionResult<PropertyAnalysisDto>> CreateAnalysisByUrl(CreatePropertyAnalysisByUrlDto createDto)
-    {
-        try
-        {
-            var analysis = await _propertyAnalyserService.CreateAnalysisByUrlAsync(createDto);
-            return CreatedAtAction(nameof(GetAnalysis), new { id = analysis.Id }, analysis);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating property analysis by URL");
-            return StatusCode(500, "An error occurred while creating the property analysis by URL");
-        }
-    }
-
     [HttpPut("{id}")]
     public async Task<ActionResult<PropertyAnalysisDto>> UpdateAnalysis(Guid id, UpdatePropertyAnalysisDto updateDto)
     {

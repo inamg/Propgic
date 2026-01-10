@@ -43,9 +43,10 @@ builder.Services.AddHttpClient();
 
 // Register ChatGPT URL Discovery Service
 var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] ?? "";
-builder.Services.AddSingleton(new Propgic.Application.Services.PropertyDataFetchers.ChatGptUrlDiscoveryService(openAIApiKey));
+builder.Services.AddSingleton(new Propgic.Application.Services.PropertyDataFetchers.ChatGptService(openAIApiKey));
 
 // Register Property Data Fetchers
+builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.IPropertyDataFetcher, Propgic.Application.Services.PropertyDataFetchers.OpenAiFetcher>();
 builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.IPropertyDataFetcher, Propgic.Application.Services.PropertyDataFetchers.DomainComAuFetcher>();
 builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.IPropertyDataFetcher, Propgic.Application.Services.PropertyDataFetchers.RealEstateComAuFetcher>();
 builder.Services.AddScoped<Propgic.Application.Services.PropertyDataFetchers.IPropertyDataFetcher, Propgic.Application.Services.PropertyDataFetchers.PropertyComAuFetcher>();

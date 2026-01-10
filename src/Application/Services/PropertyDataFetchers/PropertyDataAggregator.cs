@@ -13,36 +13,30 @@ public class PropertyDataAggregator
 
     public async Task<PropertyDataDto> FetchAndAggregateAsync(string propertyAddress)
     {
-        var results = new List<PropertyDataDto>();
+        // For address-based searches, use OpenAI fetcher directly
+        var openAiFetcher = _fetchers.FirstOrDefault(f => f.SourceName == "OpenAI");
 
-        // Try each fetcher in priority order
-        foreach (var fetcher in _fetchers)
+        if (openAiFetcher != null)
         {
             try
             {
-                Console.WriteLine($"Fetching from {fetcher.SourceName}...");
-                var data = await fetcher.FetchPropertyDataAsync(propertyAddress);
+                Console.WriteLine($"Fetching from OpenAI for address: {propertyAddress}");
+                var data = await openAiFetcher.FetchPropertyDataAsync(propertyAddress);
 
                 if (data != null)
                 {
-                    Console.WriteLine($"Successfully fetched data from {fetcher.SourceName}");
-                    results.Add(data);
+                    Console.WriteLine($"Successfully fetched data from OpenAI");
+                    return data;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error with {fetcher.SourceName}: {ex.Message}");
+                Console.WriteLine($"Error with OpenAI: {ex.Message}");
             }
         }
 
-        // If we got data from any source, aggregate it
-        if (results.Any())
-        {
-            return AggregateResults(results);
-        }
-
-        // Fallback to default data
-        Console.WriteLine("No data fetched from web sources, using default values");
+        // Fallback to default data if OpenAI fails
+        Console.WriteLine("OpenAI fetch failed, using default values");
         return GetDefaultPropertyData(propertyAddress);
     }
 
@@ -77,6 +71,19 @@ public class PropertyDataAggregator
                 {
                     Console.WriteLine($"Successfully fetched and parsed data from {selectedFetcher.SourceName}");
                     return propertyData;
+                }
+            }
+
+            // Fallback to OpenAI fetcher for URL-based searches
+            var openAiFetcher = _fetchers.FirstOrDefault(f => f.SourceName == "OpenAI");
+            if (openAiFetcher != null)
+            {
+                Console.WriteLine("Falling back to OpenAI for URL-based fetch");
+                var openAiData = await openAiFetcher.FetchPropertyDataFromUrlAsync(propertyUrl);
+                if (openAiData != null)
+                {
+                    Console.WriteLine("Successfully fetched data from OpenAI");
+                    return openAiData;
                 }
             }
 

@@ -6,12 +6,12 @@ namespace Propgic.Application.Services.PropertyDataFetchers;
 
 public class PropertyComAuFetcher : IPropertyDataFetcher
 {
-    private readonly ChatGptUrlDiscoveryService _chatGptService;
+    private readonly ChatGptService _chatGptService;
 
     public int Priority => 3;
     public string SourceName => "Property.com.au";
 
-    public PropertyComAuFetcher(ChatGptUrlDiscoveryService chatGptService)
+    public PropertyComAuFetcher(ChatGptService chatGptService)
     {
         _chatGptService = chatGptService;
     }
